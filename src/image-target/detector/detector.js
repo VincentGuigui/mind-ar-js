@@ -26,10 +26,12 @@ const FREAK_EXPANSION_FACTOR = 7.0;
 const FREAK_CONPARISON_COUNT = (FREAKPOINTS.length - 1) * (FREAKPOINTS.length) / 2; // 666
 
 class Detector {
-	constructor(width, height, debugMode = false) {
+	constructor(width, height, debugMode = false, frameOnlyMode = false, frameThickness = 0.1) {
 		this.debugMode = debugMode;
 		this.width = width;
 		this.height = height;
+		this.frameOnlyMode = frameOnlyMode;
+		this.frameThickness = frameThickness; // percentage of width/height
 		let numOctaves = 0;
 		while (width >= PYRAMID_MIN_SIZE && height >= PYRAMID_MIN_SIZE) {
 			width /= 2;
@@ -41,6 +43,28 @@ class Detector {
 
 		this.tensorCaches = {};
 		this.kernelCaches = {};
+	}
+
+	/**
+	 * Check if a point (x, y) is within the frame border area
+	 * @param {number} x - x coordinate 
+	 * @param {number} y - y coordinate
+	 * @param {number} width - image width
+	 * @param {number} height - image height
+	 * @returns {boolean} true if point is in frame border area
+	 */
+	_isInFrameArea(x, y, width, height) {
+		if (!this.frameOnlyMode) return true;
+		
+		const frameWidthPixels = Math.floor(width * this.frameThickness);
+		const frameHeightPixels = Math.floor(height * this.frameThickness);
+		
+		// Check if point is in outer border but not in inner area
+		const inOuterArea = x >= 0 && x < width && y >= 0 && y < height;
+		const inInnerArea = x >= frameWidthPixels && x < width - frameWidthPixels && 
+		                   y >= frameHeightPixels && y < height - frameHeightPixels;
+		
+		return inOuterArea && !inInnerArea;
 	}
 
 	// used in compiler
@@ -793,6 +817,15 @@ class Detector {
 						const loc = Math.floor(Math.abs(encoded) / 1000);
 						const x = i * 2 + (loc === 2 || loc === 3 ? 1 : 0);
 						const y = j * 2 + (loc === 1 || loc === 3 ? 1 : 0);
+
+						// Scale coordinates back to original image dimensions
+						const originalX = x * Math.pow(2, octave);
+						const originalY = y * Math.pow(2, octave);
+						
+						// Skip if not in frame area when frame mode is enabled
+						if (!this._isInFrameArea(originalX, originalY, this.width, this.height)) {
+							continue;
+						}
 
 						const bucketX = Math.floor(x / bucketWidth);
 						const bucketY = Math.floor(y / bucketHeight);

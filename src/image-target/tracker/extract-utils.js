@@ -1,10 +1,10 @@
 import { extract } from './extract.js';
 
-export const extractTrackingFeatures = (imageList, doneCallback) => {
+export const extractTrackingFeatures = (imageList, doneCallback, frameOnlyMode = false, frameThickness = 0.1) => {
   const featureSets = [];
   for (let i = 0; i < imageList.length; i++) {
     const image = imageList[i];
-    const points = extract(image);
+    const points = extract(image, frameOnlyMode, frameThickness);
 
     const featureSet = {
       data: image.data,
