@@ -87,22 +87,64 @@ AFRAME.registerSystem('mindar-image-system', {
       return;
     }
 
-    navigator.mediaDevices.getUserMedia({audio: false, video: {
-      facingMode: 'environment',
-    }}).then((stream) => {
-      this.video.addEventListener( 'loadedmetadata', () => {
-        //console.log("video ready...", this.video);
-        this.video.setAttribute('width', this.video.videoWidth);
-        this.video.setAttribute('height', this.video.videoHeight);
-        this._startAR();
-      });
-      this.video.srcObject = stream;
-    }).catch((err) => {
-      console.log("getUserMedia error", err);
-      this.el.emit("arError", {error: 'VIDEO_FAIL'});
-    });
+	const selectedCamera = this._getSelectedCameraFromCookie();
+	if (selectedCamera) {
+		/* to trigger camera permission */
+		navigator.mediaDevices.getUserMedia({audio:false,video:true}) 
+		.then(stream => { 
+			stream.getTracks().forEach(function(track) {
+				track.stop();
+			});
+			return navigator.mediaDevices.enumerateDevices(); })
+		.then(devices => {this._selectCamera(devices, selectedCamera)})
+		.catch(n=>{
+			console.log("getUserMedia error",n),this.el.emit("arError",{error:"VIDEO_FAIL"})
+		});
+	}
+	else {
+		navigator.mediaDevices.getUserMedia({audio:!1,video:{facingMode:"environment"}})
+		.then(stream=>this._showCameraStream(stream))
+		.catch(n=>{
+			console.log("getUserMedia error",n),this.el.emit("arError",{error:"VIDEO_FAIL"})
+		})
+	}
   },
-
+  
+  _getSelectedCameraFromCookie() {
+    let name = "selected_camera=";
+    let decodedCookie = decodeURIComponent(document.cookie);
+    let ca = decodedCookie.split(';');
+    for(let i = 0; i < ca.length; i++) {
+  	let c = ca[i];
+  	while (c.charAt(0) == ' ') {
+  	  c = c.substring(1);
+  	}
+  	if (c.indexOf(name) == 0) {
+  	  return c.substring(name.length, c.length);
+  	}
+    }
+    return undefined;
+  },
+  
+  _setCameraStream: function(stream) {
+  	this.video.addEventListener("loadedmetadata",()=> {
+  		this.video.setAttribute("width",this.video.videoWidth),this.video.setAttribute("height",this.video.videoHeight), this._startAR() 
+  	}),
+  	this.video.srcObject=stream
+  },
+  
+  _selectCamera: function(devices, selectedCamera) {
+  	let videoDevices = devices.filter((device) => 
+  		(device.kind == "videoinput" && (!selectedCamera || selectedCamera == device.deviceId) 
+  			&& (!device.getCapabilities || (device.getCapabilities().facingMode !== undefined && device.getCapabilities().facingMode[0] == "environment"))
+  		)
+  	);
+  	if (videoDevices.length == 0) videoDevices = devices.filter((device) => device.kind == "videoinput");	
+  	let device = videoDevices.sort((d1, d2)=>d1.label.localeCompare(d2.label))[0];
+  	navigator.mediaDevices.getUserMedia({video: { deviceId: { exact: device.deviceId } }}).then(stream=>{
+  		this._setCameraStream(stream)
+  	})
+  },
   _startAR: async function() {
     const video = this.video;
     const container = this.container;
@@ -116,7 +158,7 @@ AFRAME.registerSystem('mindar-image-system', {
       missTolerance: this.missTolerance,
       warmupTolerance: this.warmupTolerance,
       onUpdate: (data) => {
-	if (data.type === 'processDone') {
+  if (data.type === 'processDone') {
 	  if (this.mainStats) this.mainStats.update();
 	}
 	else if (data.type === 'updateMatrix') {
