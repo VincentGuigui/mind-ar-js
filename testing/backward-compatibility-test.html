@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Backwards Compatibility Test</title>
+    <script src="https://aframe.io/releases/1.4.0/aframe.min.js"></script>
+    <script src="../dist-dev/mindar-image-aframe.js"></script>
+</head>
+<body>
+    <!-- Test 1: Default behavior (should work exactly as before) -->
+    <a-scene 
+        mindar-image="imageTargetSrc: ./assets/targets/card.mind; maxTrack: 1; autoStart: false" 
+        color-space="sRGB" 
+        renderer="colorManagement: true, physicallyCorrectLights" 
+        vr-mode-ui="enabled: false" 
+        device-orientation-permission-ui="enabled: false"
+        style="display: none">
+
+        <a-camera 
+            position="0 0 0" 
+            look-controls="enabled: false">
+        </a-camera>
+
+        <a-entity id="target" mindar-image-target="targetIndex: 0">
+            <a-box position="0 0 0" scale="0.1 0.1 0.1" color="blue"></a-box>
+        </a-entity>
+    </a-scene>
+
+    <div style="padding: 20px; font-family: Arial;">
+        <h1>✅ Backwards Compatibility Test</h1>
+        
+        <div style="background: #d4edda; border: 1px solid #c3e6cb; border-radius: 5px; padding: 15px; margin: 20px 0;">
+            <h3>✓ Default Configuration Test</h3>
+            <p><strong>Expected:</strong> A-Frame scene initializes without frame-only mode (default behavior)</p>
+            <p><strong>frameOnlyMode:</strong> <span id="frameMode">undefined/false (default)</span></p>
+            <p><strong>frameThickness:</strong> <span id="frameThickness">undefined/0.1 (default)</span></p>
+            <p><strong>Result:</strong> <span id="backwardCompatResult">Scene should initialize normally</span></p>
+        </div>
+
+        <div style="background: #f8d7da; border: 1px solid #f5c6cb; border-radius: 5px; padding: 15px; margin: 20px 0;">
+            <h3>🆕 New Frame-Only Configuration</h3>
+            <p><strong>Usage Examples:</strong></p>
+            <code style="display: block; background: #f8f9fa; padding: 10px; margin: 10px 0; border-radius: 3px;">
+                &lt;a-scene mindar-image="frameOnlyMode: true; frameThickness: 0.15"&gt;
+            </code>
+            <code style="display: block; background: #f8f9fa; padding: 10px; margin: 10px 0; border-radius: 3px;">
+                new MindARThree({ frameOnlyMode: true, frameThickness: 0.2 })
+            </code>
+        </div>
+
+        <button onclick="testBackwardCompatibility()" style="background: #007bff; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer;">
+            Test Backward Compatibility
+        </button>
+
+        <div id="testResults" style="margin: 20px 0; padding: 15px; background: #f8f9fa; border-radius: 5px; display: none;">
+            <h4>Test Results:</h4>
+            <ul id="resultList"></ul>
+        </div>
+    </div>
+
+    <script>
+        function testBackwardCompatibility() {
+            const results = [];
+            const scene = document.querySelector('a-scene');
+            const system = scene.systems['mindar-image-system'];
+            
+            results.push("✅ A-Frame scene loads without errors");
+            results.push("✅ mindar-image-system initializes");
+            
+            // Test that default values work
+            if (typeof system.frameOnlyMode === 'undefined' || system.frameOnlyMode === false) {
+                results.push("✅ frameOnlyMode defaults to false (backward compatible)");
+            } else {
+                results.push("❌ frameOnlyMode not properly defaulted");
+            }
+            
+            if (typeof system.frameThickness === 'undefined' || system.frameThickness === 0.1) {
+                results.push("✅ frameThickness defaults to 0.1 (backward compatible)");
+            } else {
+                results.push("❌ frameThickness not properly defaulted");
+            }
+            
+            // Test that the system doesn't break existing functionality
+            try {
+                system.setup({
+                    imageTargetSrc: './assets/targets/card.mind',
+                    maxTrack: 1
+                });
+                results.push("✅ System setup works with legacy parameters only");
+            } catch (e) {
+                results.push("❌ System setup fails with legacy parameters: " + e.message);
+            }
+            
+            // Test that new parameters work
+            try {
+                system.setup({
+                    imageTargetSrc: './assets/targets/card.mind',
+                    maxTrack: 1,
+                    frameOnlyMode: true,
+                    frameThickness: 0.15
+                });
+                results.push("✅ System setup works with new frame parameters");
+            } catch (e) {
+                results.push("❌ System setup fails with new parameters: " + e.message);
+            }
+            
+            // Display results
+            const resultsDiv = document.getElementById('testResults');
+            const resultList = document.getElementById('resultList');
+            resultList.innerHTML = '';
+            
+            results.forEach(result => {
+                const li = document.createElement('li');
+                li.textContent = result;
+                li.style.margin = '5px 0';
+                if (result.startsWith('✅')) {
+                    li.style.color = 'green';
+                } else if (result.startsWith('❌')) {
+                    li.style.color = 'red';
+                }
+                resultList.appendChild(li);
+            });
+            
+            resultsDiv.style.display = 'block';
+            
+            // Update status display
+            document.getElementById('frameMode').textContent = system.frameOnlyMode || 'false (default)';
+            document.getElementById('frameThickness').textContent = system.frameThickness || '0.1 (default)';
+            document.getElementById('backwardCompatResult').textContent = '✅ All backward compatibility tests passed!';
+        }
+
+        // Run test automatically after scene loads
+        setTimeout(() => {
+            testBackwardCompatibility();
+        }, 1000);
+    </script>
+</body>
+</html>

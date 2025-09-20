@@ -21,9 +21,28 @@ const OCCUPANCY_SIZE = 24 * 2 / 3;
  * @param {Uint8Array} options.imageData
  * @param {int} options.width image width
  * @param {int} options.height image height
+ * @param {boolean} frameOnlyMode - if true, only extract features from frame border
+ * @param {number} frameThickness - percentage of width/height for frame thickness
  */
-const extract = (image) => {
+const extract = (image, frameOnlyMode = false, frameThickness = 0.1) => {
   const {data: imageData, width, height, scale} = image;
+
+  /**
+   * Check if a point (x, y) is within the frame border area
+   */
+  const isInFrameArea = (x, y) => {
+    if (!frameOnlyMode) return true;
+    
+    const frameWidthPixels = Math.floor(width * frameThickness);
+    const frameHeightPixels = Math.floor(height * frameThickness);
+    
+    // Check if point is in outer border but not in inner area
+    const inOuterArea = x >= 0 && x < width && y >= 0 && y < height;
+    const inInnerArea = x >= frameWidthPixels && x < width - frameWidthPixels && 
+                       y >= frameHeightPixels && y < height - frameHeightPixels;
+    
+    return inOuterArea && !inInnerArea;
+  };
 
   // Step 1 - filter out interesting points. Interesting points have strong pixel value changed across neighbours
   const isPixelSelected = [width * height];
@@ -47,6 +66,11 @@ const extract = (image) => {
     for (let j = 1; j < height-1; j++) {
       let pos = i + width * j;
 
+      // Skip if not in frame area when frame mode is enabled
+      if (!isInFrameArea(i, j)) {
+        continue;
+      }
+
       let dx = 0.0;
       let dy = 0.0;
       for (let k = -1; k <= 1; k++) {
@@ -68,6 +92,12 @@ const extract = (image) => {
   for (let i = 1; i < width-1; i++) {
     for (let j = 1; j < height-1; j++) {
       let pos = i + width * j;
+      
+      // Skip if not in frame area when frame mode is enabled
+      if (!isInFrameArea(i, j)) {
+        continue;
+      }
+      
       let isMax = true;
       for (let d = 0; d < neighbourOffsets.length; d++) {
         if (dValue[pos] <= dValue[pos + neighbourOffsets[d]]) {
@@ -157,14 +187,31 @@ const extract = (image) => {
   }
 
   // Step 2.2 select feature
-  const coords = _selectFeature({image, featureMap, templateSize: TEMPLATE_SIZE, searchSize: SEARCH_SIZE2, occSize: OCCUPANCY_SIZE, maxSimThresh: MAX_THRESH, minSimThresh: MIN_THRESH, sdThresh: SD_THRESH, imageDataCumsum, imageDataSqrCumsum});
+  const coords = _selectFeature({image, featureMap, templateSize: TEMPLATE_SIZE, searchSize: SEARCH_SIZE2, occSize: OCCUPANCY_SIZE, maxSimThresh: MAX_THRESH, minSimThresh: MIN_THRESH, sdThresh: SD_THRESH, imageDataCumsum, imageDataSqrCumsum, frameOnlyMode, frameThickness});
 
   return coords;
 }
 
 const _selectFeature = (options) => {
-  let {image, featureMap, templateSize, searchSize, occSize, maxSimThresh, minSimThresh, sdThresh, imageDataCumsum, imageDataSqrCumsum} = options;
+  let {image, featureMap, templateSize, searchSize, occSize, maxSimThresh, minSimThresh, sdThresh, imageDataCumsum, imageDataSqrCumsum, frameOnlyMode, frameThickness} = options;
   const {data: imageData, width, height, scale} = image;
+
+  /**
+   * Check if a point (x, y) is within the frame border area
+   */
+  const isInFrameArea = (x, y) => {
+    if (!frameOnlyMode) return true;
+    
+    const frameWidthPixels = Math.floor(width * frameThickness);
+    const frameHeightPixels = Math.floor(height * frameThickness);
+    
+    // Check if point is in outer border but not in inner area
+    const inOuterArea = x >= 0 && x < width && y >= 0 && y < height;
+    const inInnerArea = x >= frameWidthPixels && x < width - frameWidthPixels && 
+                       y >= frameHeightPixels && y < height - frameHeightPixels;
+    
+    return inOuterArea && !inInnerArea;
+  };
 
   //console.log("params: ", templateSize, templateSize, occSize, maxSimThresh, minSimThresh, sdThresh);
 
@@ -191,6 +238,11 @@ const _selectFeature = (options) => {
     let cy = -1;
     for (let j = 0; j < height; j++) {
       for (let i = 0; i < width; i++) {
+        // Skip if not in frame area when frame mode is enabled
+        if (!isInFrameArea(i, j)) {
+          continue;
+        }
+        
         if (image2[j*width+i] < minSim) {
           minSim = image2[j*width+i];
           cx = i;

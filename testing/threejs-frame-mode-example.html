@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Three.js Frame-Only Mode Example</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r148/three.min.js"></script>
+    <script src="../dist-dev/mindar-image-three.js"></script>
+    <style>
+        body {
+            margin: 0;
+            font-family: Arial, sans-serif;
+        }
+        #container {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+        }
+        #info {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background: rgba(0,0,0,0.8);
+            color: white;
+            padding: 15px;
+            border-radius: 8px;
+            z-index: 100;
+            max-width: 300px;
+        }
+        #controls {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: rgba(0,0,0,0.8);
+            color: white;
+            padding: 15px;
+            border-radius: 8px;
+            z-index: 100;
+        }
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 2px;
+        }
+        button:hover {
+            background: #0056b3;
+        }
+        .active {
+            background: #28a745 !important;
+        }
+    </style>
+</head>
+<body>
+    <div id="container"></div>
+    
+    <div id="info">
+        <h3>🎯 Frame-Only Mode Demo</h3>
+        <p><strong>Current Mode:</strong> <span id="currentMode">Frame-Only (15%)</span></p>
+        <p><strong>Features Detected:</strong> <span id="featureCount">-</span></p>
+        <p><strong>Frame Thickness:</strong> <span id="thicknessDisplay">15%</span></p>
+        <p>Point camera at target with border features</p>
+    </div>
+
+    <div id="controls">
+        <h4>Mode Controls</h4>
+        <button id="normalBtn" onclick="switchToNormal()">Normal Mode</button>
+        <button id="frameBtn" onclick="switchToFrame()" class="active">Frame Mode</button>
+        <br><br>
+        <label>Frame Thickness:</label><br>
+        <input type="range" id="thicknessSlider" min="0.05" max="0.25" step="0.05" value="0.15" onchange="updateThickness()">
+        <span id="thicknessValue">0.15</span>
+    </div>
+
+    <script>
+        let mindarThree;
+        let scene, camera, renderer;
+        let cube;
+        let currentFrameMode = true;
+        let currentThickness = 0.15;
+
+        async function start() {
+            // Initialize MindAR with frame-only mode
+            mindarThree = new window.MINDAR.IMAGE.MindARThree({
+                container: document.getElementById('container'),
+                imageTargetSrc: '../examples/image-tracking/assets/targets/card.mind',
+                frameOnlyMode: currentFrameMode,
+                frameThickness: currentThickness,
+                maxTrack: 1
+            });
+
+            const {renderer, scene, camera} = mindarThree;
+
+            // Create a simple rotating cube for demo
+            const geometry = new THREE.BoxGeometry();
+            const material = new THREE.MeshBasicMaterial({
+                color: currentFrameMode ? 0x00ff00 : 0xff0000, // Green for frame mode, red for normal
+                wireframe: true
+            });
+            cube = new THREE.Mesh(geometry, material);
+            
+            // Add some animation
+            cube.rotation.x = 0.5;
+            cube.rotation.y = 0.5;
+
+            const anchor = mindarThree.addAnchor(0);
+            anchor.group.add(cube);
+
+            await mindarThree.start();
+            
+            // Animation loop
+            renderer.setAnimationLoop(() => {
+                cube.rotation.y += 0.01;
+                cube.rotation.x += 0.005;
+                renderer.render(scene, camera);
+            });
+
+            updateDisplay();
+        }
+
+        async function switchToNormal() {
+            if (mindarThree) {
+                await mindarThree.stop();
+            }
+            currentFrameMode = false;
+            document.getElementById('normalBtn').classList.add('active');
+            document.getElementById('frameBtn').classList.remove('active');
+            await start();
+        }
+
+        async function switchToFrame() {
+            if (mindarThree) {
+                await mindarThree.stop();
+            }
+            currentFrameMode = true;
+            document.getElementById('frameBtn').classList.add('active');
+            document.getElementById('normalBtn').classList.remove('active');
+            await start();
+        }
+
+        async function updateThickness() {
+            const slider = document.getElementById('thicknessSlider');
+            currentThickness = parseFloat(slider.value);
+            document.getElementById('thicknessValue').textContent = currentThickness;
+            document.getElementById('thicknessDisplay').textContent = (currentThickness * 100).toFixed(0) + '%';
+            
+            // Restart with new thickness if in frame mode
+            if (currentFrameMode && mindarThree) {
+                await mindarThree.stop();
+                await start();
+            }
+        }
+
+        function updateDisplay() {
+            const mode = currentFrameMode ? `Frame-Only (${(currentThickness * 100).toFixed(0)}%)` : 'Normal (Full Image)';
+            document.getElementById('currentMode').textContent = mode;
+            document.getElementById('thicknessDisplay').textContent = (currentThickness * 100).toFixed(0) + '%';
+            
+            // Update cube color based on mode
+            if (cube) {
+                cube.material.color.setHex(currentFrameMode ? 0x00ff00 : 0xff0000);
+            }
+        }
+
+        // Start the application
+        start();
+    </script>
+</body>
+</html>

@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Frame Mode Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+        }
+        .container {
+            display: flex;
+            gap: 20px;
+            margin: 20px 0;
+        }
+        .test-section {
+            border: 1px solid #ccc;
+            padding: 20px;
+            border-radius: 5px;
+            flex: 1;
+        }
+        h2 {
+            color: #333;
+            margin-top: 0;
+        }
+        .result {
+            background: #f5f5f5;
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 3px;
+            white-space: pre-wrap;
+        }
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 3px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover {
+            background: #0056b3;
+        }
+        .canvas-container {
+            margin: 10px 0;
+        }
+        canvas {
+            border: 1px solid #ddd;
+            max-width: 100%;
+        }
+        .info {
+            background: #e3f2fd;
+            padding: 15px;
+            border-left: 4px solid #2196f3;
+            margin: 20px 0;
+        }
+    </style>
+</head>
+<body>
+    <h1>Frame-Only Feature Detection Test</h1>
+    
+    <div class="info">
+        <strong>What this test demonstrates:</strong><br>
+        This test shows the difference between normal feature detection (which extracts features from the entire image) 
+        and frame-only mode (which only extracts features from the border area of the image).
+        <br><br>
+        <strong>How to use:</strong><br>
+        1. Create a test image or use an existing one<br>
+        2. Run feature extraction with normal mode<br>
+        3. Run feature extraction with frame-only mode<br>
+        4. Compare the extracted feature points
+    </div>
+
+    <div class="container">
+        <div class="test-section">
+            <h2>Normal Mode</h2>
+            <p>Features extracted from entire image</p>
+            <div class="canvas-container">
+                <canvas id="normalCanvas" width="400" height="300"></canvas>
+            </div>
+            <button onclick="runNormalTest()">Run Normal Mode Test</button>
+            <div class="result" id="normalResult">Click button to run test</div>
+        </div>
+
+        <div class="test-section">
+            <h2>Frame-Only Mode</h2>
+            <p>Features extracted only from border area (10% thickness)</p>
+            <div class="canvas-container">
+                <canvas id="frameCanvas" width="400" height="300"></canvas>
+            </div>
+            <button onclick="runFrameTest()">Run Frame Mode Test</button>
+            <div class="result" id="frameResult">Click button to run test</div>
+        </div>
+    </div>
+
+    <div class="test-section">
+        <h2>Configuration Test</h2>
+        <p>Test different frame thickness values</p>
+        <label>Frame Thickness: <input type="range" id="thicknessSlider" min="0.05" max="0.3" step="0.05" value="0.1" onchange="updateThickness()"></label>
+        <span id="thicknessValue">0.1</span>
+        <br><br>
+        <button onclick="runThicknessTest()">Test Current Thickness</button>
+        <div class="result" id="thicknessResult">Adjust thickness and click test</div>
+    </div>
+
+    <script type="module">
+        // Import the extract function to test it directly
+        import { extract } from '../src/image-target/tracker/extract.js';
+        
+        // Make functions available globally for buttons
+        window.extract = extract;
+        
+        // Test image data - simple pattern with border and inner content
+        function createTestImageData(width, height) {
+            const data = new Uint8Array(width * height);
+            
+            // Fill with gradient pattern
+            for (let y = 0; y < height; y++) {
+                for (let x = 0; x < width; x++) {
+                    const pos = y * width + x;
+                    // Create a pattern with more features near borders
+                    const borderDist = Math.min(x, y, width - x - 1, height - y - 1);
+                    const centerDist = Math.sqrt((x - width/2)**2 + (y - height/2)**2);
+                    
+                    // Border gets high contrast patterns
+                    if (borderDist < 20) {
+                        data[pos] = ((x + y) % 20 < 10) ? 255 : 0;
+                    } else {
+                        // Inner area gets lower contrast
+                        data[pos] = 128 + Math.sin(centerDist * 0.1) * 50;
+                    }
+                }
+            }
+            
+            return data;
+        }
+
+        function drawImageWithFeatures(canvasId, imageData, width, height, features, title) {
+            const canvas = document.getElementById(canvasId);
+            const ctx = canvas.getContext('2d');
+            
+            // Clear canvas
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // Draw image
+            const imgData = ctx.createImageData(width, height);
+            for (let i = 0; i < imageData.length; i++) {
+                const val = imageData[i];
+                imgData.data[i * 4] = val;     // R
+                imgData.data[i * 4 + 1] = val; // G
+                imgData.data[i * 4 + 2] = val; // B
+                imgData.data[i * 4 + 3] = 255; // A
+            }
+            
+            // Scale to canvas size
+            const tempCanvas = document.createElement('canvas');
+            tempCanvas.width = width;
+            tempCanvas.height = height;
+            const tempCtx = tempCanvas.getContext('2d');
+            tempCtx.putImageData(imgData, 0, 0);
+            
+            ctx.drawImage(tempCanvas, 0, 0, canvas.width, canvas.height);
+            
+            // Draw feature points
+            ctx.fillStyle = 'red';
+            const scaleX = canvas.width / width;
+            const scaleY = canvas.height / height;
+            
+            features.forEach(point => {
+                const x = point.x * scaleX;
+                const y = point.y * scaleY;
+                ctx.beginPath();
+                ctx.arc(x, y, 2, 0, 2 * Math.PI);
+                ctx.fill();
+            });
+            
+            // Draw title
+            ctx.fillStyle = 'blue';
+            ctx.font = '14px Arial';
+            ctx.fillText(title, 10, 20);
+        }
+
+        window.runNormalTest = function() {
+            const width = 200;
+            const height = 150;
+            const imageData = createTestImageData(width, height);
+            
+            const image = {
+                data: imageData,
+                width: width,
+                height: height,
+                scale: 1
+            };
+            
+            const features = extract(image, false, 0.1); // Normal mode
+            
+            drawImageWithFeatures('normalCanvas', imageData, width, height, features, `Normal Mode: ${features.length} features`);
+            
+            document.getElementById('normalResult').textContent = 
+                `Extracted ${features.length} features from entire image\n` +
+                `Features distributed across full image area\n` +
+                `First 5 features: ${features.slice(0, 5).map(p => `(${p.x.toFixed(1)}, ${p.y.toFixed(1)})`).join(', ')}`;
+        };
+
+        window.runFrameTest = function() {
+            const width = 200;
+            const height = 150;
+            const imageData = createTestImageData(width, height);
+            
+            const image = {
+                data: imageData,
+                width: width,
+                height: height,
+                scale: 1
+            };
+            
+            const features = extract(image, true, 0.1); // Frame mode with 10% thickness
+            
+            drawImageWithFeatures('frameCanvas', imageData, width, height, features, `Frame Mode: ${features.length} features`);
+            
+            const frameThickness = 0.1;
+            const frameWidthPixels = Math.floor(width * frameThickness);
+            const frameHeightPixels = Math.floor(height * frameThickness);
+            
+            document.getElementById('frameResult').textContent = 
+                `Extracted ${features.length} features from frame area only\n` +
+                `Frame thickness: ${frameThickness * 100}% = ${frameWidthPixels}px horizontal, ${frameHeightPixels}px vertical\n` +
+                `Features only from border region\n` +
+                `First 5 features: ${features.slice(0, 5).map(p => `(${p.x.toFixed(1)}, ${p.y.toFixed(1)})`).join(', ')}`;
+        };
+
+        window.updateThickness = function() {
+            const value = document.getElementById('thicknessSlider').value;
+            document.getElementById('thicknessValue').textContent = value;
+        };
+
+        window.runThicknessTest = function() {
+            const thickness = parseFloat(document.getElementById('thicknessSlider').value);
+            const width = 200;
+            const height = 150;
+            const imageData = createTestImageData(width, height);
+            
+            const image = {
+                data: imageData,
+                width: width,
+                height: height,
+                scale: 1
+            };
+            
+            const features = extract(image, true, thickness);
+            
+            const frameWidthPixels = Math.floor(width * thickness);
+            const frameHeightPixels = Math.floor(height * thickness);
+            
+            document.getElementById('thicknessResult').textContent = 
+                `Thickness: ${thickness * 100}% = ${frameWidthPixels}px × ${frameHeightPixels}px frame\n` +
+                `Extracted ${features.length} features\n` +
+                `Inner area excluded: ${width - 2*frameWidthPixels} × ${height - 2*frameHeightPixels} pixels`;
+        };
+
+        // Run initial tests
+        setTimeout(() => {
+            runNormalTest();
+            runFrameTest();
+        }, 100);
+    </script>
+</body>
+</html>
