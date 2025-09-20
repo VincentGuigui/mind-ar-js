@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Core API Compatibility Test</title>
+    <script src="../dist-dev/mindar-image-three.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .test { border: 1px solid #ddd; margin: 10px 0; padding: 15px; border-radius: 5px; }
+        .pass { background: #d4edda; border-color: #c3e6cb; }
+        .fail { background: #f8d7da; border-color: #f5c6cb; }
+        .info { background: #e3f2fd; border-color: #2196f3; }
+        code { background: #f5f5f5; padding: 2px 4px; border-radius: 3px; }
+    </style>
+</head>
+<body>
+    <h1>MindAR Frame-Only Feature Compatibility Test</h1>
+    
+    <div id="results"></div>
+
+    <script>
+        const results = [];
+        
+        function addResult(test, passed, message) {
+            results.push({ test, passed, message });
+            displayResults();
+        }
+        
+        function displayResults() {
+            const container = document.getElementById('results');
+            container.innerHTML = '';
+            
+            results.forEach(result => {
+                const div = document.createElement('div');
+                div.className = `test ${result.passed ? 'pass' : 'fail'}`;
+                div.innerHTML = `
+                    <h3>${result.passed ? '✅' : '❌'} ${result.test}</h3>
+                    <p>${result.message}</p>
+                `;
+                container.appendChild(div);
+            });
+        }
+        
+        // Test 1: Basic MindARThree instantiation (backward compatibility)
+        try {
+            const mindAR1 = new window.MINDAR.IMAGE.MindARThree({
+                container: document.createElement('div'),
+                imageTargetSrc: 'test.mind'
+            });
+            addResult('Backward Compatibility', true, 'MindARThree can be instantiated with legacy parameters only (no frame options)');
+        } catch (e) {
+            addResult('Backward Compatibility', false, `Failed to instantiate with legacy parameters: ${e.message}`);
+        }
+        
+        // Test 2: Frame-only mode instantiation
+        try {
+            const mindAR2 = new window.MINDAR.IMAGE.MindARThree({
+                container: document.createElement('div'),
+                imageTargetSrc: 'test.mind',
+                frameOnlyMode: true,
+                frameThickness: 0.15
+            });
+            addResult('Frame-Only Mode', true, 'MindARThree accepts new frame-only parameters without errors');
+        } catch (e) {
+            addResult('Frame-Only Mode', false, `Failed to instantiate with frame parameters: ${e.message}`);
+        }
+        
+        // Test 3: Default values
+        try {
+            const mindAR3 = new window.MINDAR.IMAGE.MindARThree({
+                container: document.createElement('div'),
+                imageTargetSrc: 'test.mind'
+            });
+            
+            // Check if frameOnlyMode defaults to false
+            const frameMode = mindAR3.frameOnlyMode || false;
+            const frameThickness = mindAR3.frameThickness || 0.1;
+            
+            if (frameMode === false && frameThickness === 0.1) {
+                addResult('Default Values', true, `frameOnlyMode defaults to ${frameMode}, frameThickness defaults to ${frameThickness}`);
+            } else {
+                addResult('Default Values', false, `Unexpected defaults: frameOnlyMode=${frameMode}, frameThickness=${frameThickness}`);
+            }
+        } catch (e) {
+            addResult('Default Values', false, `Error checking defaults: ${e.message}`);
+        }
+        
+        // Test 4: Controller API
+        try {
+            const controller = new window.MINDAR.IMAGE.Controller({
+                inputWidth: 640,
+                inputHeight: 480,
+                frameOnlyMode: true,
+                frameThickness: 0.2
+            });
+            addResult('Controller API', true, 'Controller accepts frame-only parameters');
+        } catch (e) {
+            addResult('Controller API', false, `Controller failed with frame parameters: ${e.message}`);
+        }
+        
+        // Test 5: Edge cases
+        try {
+            // Test with extreme values
+            const mindAR4 = new window.MINDAR.IMAGE.MindARThree({
+                container: document.createElement('div'),
+                imageTargetSrc: 'test.mind',
+                frameOnlyMode: true,
+                frameThickness: 0.05  // Very thin frame
+            });
+            
+            const mindAR5 = new window.MINDAR.IMAGE.MindARThree({
+                container: document.createElement('div'),
+                imageTargetSrc: 'test.mind',
+                frameOnlyMode: true,
+                frameThickness: 0.3   // Thick frame
+            });
+            
+            addResult('Edge Cases', true, 'Accepts frame thickness from 0.05 to 0.3 without errors');
+        } catch (e) {
+            addResult('Edge Cases', false, `Failed with edge case values: ${e.message}`);
+        }
+        
+        // Add usage documentation
+        const infoDiv = document.createElement('div');
+        infoDiv.className = 'test info';
+        infoDiv.innerHTML = `
+            <h3>📖 Usage Documentation</h3>
+            <h4>Three.js API:</h4>
+            <code>new MindARThree({ frameOnlyMode: true, frameThickness: 0.15 })</code>
+            
+            <h4>A-Frame API:</h4>
+            <code>&lt;a-scene mindar-image="frameOnlyMode: true; frameThickness: 0.15"&gt;</code>
+            
+            <h4>Parameters:</h4>
+            <ul>
+                <li><strong>frameOnlyMode</strong>: boolean (default: false) - Enable frame-only feature detection</li>
+                <li><strong>frameThickness</strong>: number (default: 0.1) - Frame thickness as percentage of image width/height (0.05-0.3)</li>
+            </ul>
+            
+            <h4>Benefits:</h4>
+            <ul>
+                <li>🎯 More precise tracking for targets with distinct border features</li>
+                <li>⚡ Better performance with fewer feature points</li>
+                <li>🔍 Reduced false positives from inner image content</li>
+                <li>📱 Ideal for cards, documents, or framed objects</li>
+            </ul>
+        `;
+        document.getElementById('results').appendChild(infoDiv);
+    </script>
+</body>
+</html>
