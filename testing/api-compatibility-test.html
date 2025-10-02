@@ -57,8 +57,7 @@
             const mindAR2 = new window.MINDAR.IMAGE.MindARThree({
                 container: document.createElement('div'),
                 imageTargetSrc: 'test.mind',
-                frameOnlyMode: true,
-                frameThickness: 0.15
+                frameThickness: 0.1
             });
             addResult('Frame-Only Mode', true, 'MindARThree accepts new frame-only parameters without errors');
         } catch (e) {
@@ -72,14 +71,12 @@
                 imageTargetSrc: 'test.mind'
             });
             
-            // Check if frameOnlyMode defaults to false
-            const frameMode = mindAR3.frameOnlyMode || false;
             const frameThickness = mindAR3.frameThickness || 0.1;
             
-            if (frameMode === false && frameThickness === 0.1) {
-                addResult('Default Values', true, `frameOnlyMode defaults to ${frameMode}, frameThickness defaults to ${frameThickness}`);
+            if (frameThickness === 0.1) {
+                addResult('Default Values', true, `frameThickness defaults to ${frameThickness}`);
             } else {
-                addResult('Default Values', false, `Unexpected defaults: frameOnlyMode=${frameMode}, frameThickness=${frameThickness}`);
+                addResult('Default Values', false, `Unexpected defaults: frameThickness=${frameThickness}`);
             }
         } catch (e) {
             addResult('Default Values', false, `Error checking defaults: ${e.message}`);
@@ -90,7 +87,6 @@
             const controller = new window.MINDAR.IMAGE.Controller({
                 inputWidth: 640,
                 inputHeight: 480,
-                frameOnlyMode: true,
                 frameThickness: 0.2
             });
             addResult('Controller API', true, 'Controller accepts frame-only parameters');
@@ -104,14 +100,12 @@
             const mindAR4 = new window.MINDAR.IMAGE.MindARThree({
                 container: document.createElement('div'),
                 imageTargetSrc: 'test.mind',
-                frameOnlyMode: true,
                 frameThickness: 0.05  // Very thin frame
             });
             
             const mindAR5 = new window.MINDAR.IMAGE.MindARThree({
                 container: document.createElement('div'),
                 imageTargetSrc: 'test.mind',
-                frameOnlyMode: true,
                 frameThickness: 0.3   // Thick frame
             });
             
@@ -126,15 +120,14 @@
         infoDiv.innerHTML = `
             <h3>📖 Usage Documentation</h3>
             <h4>Three.js API:</h4>
-            <code>new MindARThree({ frameOnlyMode: true, frameThickness: 0.15 })</code>
+            <code>new MindARThree({ frameThickness: 0.15 })</code>
             
             <h4>A-Frame API:</h4>
-            <code>&lt;a-scene mindar-image="frameOnlyMode: true; frameThickness: 0.15"&gt;</code>
+            <code>&lt;a-scene mindar-image="frameThickness: 0.15"&gt;</code>
             
             <h4>Parameters:</h4>
             <ul>
-                <li><strong>frameOnlyMode</strong>: boolean (default: false) - Enable frame-only feature detection</li>
-                <li><strong>frameThickness</strong>: number (default: 0.1) - Frame thickness as percentage of image width/height (0.05-0.3)</li>
+                <li><strong>frameThickness</strong>: number (default: 0.1) - Frame thickness as percentage of image width/height (0.0-0.3)</li>
             </ul>
             
             <h4>Benefits:</h4>

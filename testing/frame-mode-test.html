@@ -97,7 +97,10 @@
     <div class="test-section">
         <h2>Configuration Test</h2>
         <p>Test different frame thickness values</p>
-        <label>Frame Thickness: <input type="range" id="thicknessSlider" min="0.05" max="0.3" step="0.05" value="0.1" onchange="updateThickness()"></label>
+        <div class="canvas-container">
+            <canvas id="frameCanvasTest" width="400" height="300"></canvas>
+        </div>
+        <label>Frame Thickness: <input type="range" id="thicknessSlider" min="0.00" max="0.3" step="0.05" value="0.1" onchange="updateThickness()"></label>
         <span id="thicknessValue">0.1</span>
         <br><br>
         <button onclick="runThicknessTest()">Test Current Thickness</button>
@@ -121,14 +124,17 @@
                     const pos = y * width + x;
                     // Create a pattern with more features near borders
                     const borderDist = Math.min(x, y, width - x - 1, height - y - 1);
-                    const centerDist = Math.sqrt((x - width/2)**2 + (y - height/2)**2);
+                    const centerDist = Math.sqrt((x - width/2)**2 + (y - height/2)**3);
                     
                     // Border gets high contrast patterns
                     if (borderDist < 20) {
-                        data[pos] = ((x + y) % 20 < 10) ? 255 : 0;
+                        data[pos] =
+                            ((x + y) % 20) < 5
+                            || (((width - x) + y) % 20) < 5
+                            ? 255 : 0;
                     } else {
                         // Inner area gets lower contrast
-                        data[pos] = 128 + Math.sin(centerDist * 0.1) * 50;
+                        data[pos] = 128 + Math.sin(centerDist * 0.8) * 50;
                     }
                 }
             }
@@ -176,8 +182,8 @@
             });
             
             // Draw title
-            ctx.fillStyle = 'blue';
-            ctx.font = '14px Arial';
+            ctx.fillStyle = 'green';
+            ctx.font = 'bold 14px Arial';
             ctx.fillText(title, 10, 20);
         }
 
@@ -193,7 +199,7 @@
                 scale: 1
             };
             
-            const features = extract(image, false, 0.1); // Normal mode
+            const features = extract(image, 0); // Normal mode
             
             drawImageWithFeatures('normalCanvas', imageData, width, height, features, `Normal Mode: ${features.length} features`);
             
@@ -215,7 +221,7 @@
                 scale: 1
             };
             
-            const features = extract(image, true, 0.1); // Frame mode with 10% thickness
+            const features = extract(image, 0.1); // Frame mode with 10% thickness
             
             drawImageWithFeatures('frameCanvas', imageData, width, height, features, `Frame Mode: ${features.length} features`);
             
@@ -248,8 +254,10 @@
                 scale: 1
             };
             
-            const features = extract(image, true, thickness);
+            const features = extract(image, thickness);
             
+            drawImageWithFeatures('frameCanvasTest', imageData, width, height, features, `Frame Mode: ${features.length} features`);
+
             const frameWidthPixels = Math.floor(width * thickness);
             const frameHeightPixels = Math.floor(height * thickness);
             

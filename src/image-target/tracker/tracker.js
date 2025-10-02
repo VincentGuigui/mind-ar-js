@@ -16,13 +16,12 @@ const TRACKING_KEYFRAME = 1; // 0: 256px, 1: 128px
 const PRECISION_ADJUST = 1000;
 
 class Tracker {
-  constructor(markerDimensions, trackingDataList, projectionTransform, inputWidth, inputHeight, debugMode=false, frameOnlyMode = false, frameThickness = 0.1) {
+  constructor(markerDimensions, trackingDataList, projectionTransform, inputWidth, inputHeight, debugMode=false, frameOnlyDetectionThickness = 0.0) {
     this.markerDimensions = markerDimensions;
     this.trackingDataList = trackingDataList;
     this.projectionTransform = projectionTransform;
     this.debugMode = debugMode;
-    this.frameOnlyMode = frameOnlyMode;
-    this.frameThickness = frameThickness; // percentage of width/height
+    this.frameOnlyDetectionThickness = frameOnlyDetectionThickness; // percentage of width/height
 
     this.trackingKeyframeList = [];
     for (let i = 0; i < trackingDataList.length; i++) {
@@ -57,10 +56,10 @@ class Tracker {
    * @returns {boolean} true if point is in frame border area
    */
   _isInFrameArea(x, y, width, height) {
-    if (!this.frameOnlyMode) return true;
+    if (this.frameOnlyDetectionThickness == 0) return true;
     
-    const frameWidthPixels = Math.floor(width * this.frameThickness);
-    const frameHeightPixels = Math.floor(height * this.frameThickness);
+    const frameWidthPixels = Math.floor(width * this.frameOnlyDetectionThickness);
+    const frameHeightPixels = Math.floor(height * this.frameOnlyDetectionThickness);
     
     // Check if point is in outer border but not in inner area
     const inOuterArea = x >= 0 && x < width && y >= 0 && y < height;

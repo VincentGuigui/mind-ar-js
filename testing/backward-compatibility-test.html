@@ -32,7 +32,6 @@
         <div style="background: #d4edda; border: 1px solid #c3e6cb; border-radius: 5px; padding: 15px; margin: 20px 0;">
             <h3>✓ Default Configuration Test</h3>
             <p><strong>Expected:</strong> A-Frame scene initializes without frame-only mode (default behavior)</p>
-            <p><strong>frameOnlyMode:</strong> <span id="frameMode">undefined/false (default)</span></p>
             <p><strong>frameThickness:</strong> <span id="frameThickness">undefined/0.1 (default)</span></p>
             <p><strong>Result:</strong> <span id="backwardCompatResult">Scene should initialize normally</span></p>
         </div>
@@ -41,10 +40,10 @@
             <h3>🆕 New Frame-Only Configuration</h3>
             <p><strong>Usage Examples:</strong></p>
             <code style="display: block; background: #f8f9fa; padding: 10px; margin: 10px 0; border-radius: 3px;">
-                &lt;a-scene mindar-image="frameOnlyMode: true; frameThickness: 0.15"&gt;
+                &lt;a-scene mindar-image="frameThickness: 0.15"&gt;
             </code>
             <code style="display: block; background: #f8f9fa; padding: 10px; margin: 10px 0; border-radius: 3px;">
-                new MindARThree({ frameOnlyMode: true, frameThickness: 0.2 })
+                new MindARThree({ frameThickness: 0.15 })
             </code>
         </div>
 
@@ -66,13 +65,6 @@
             
             results.push("✅ A-Frame scene loads without errors");
             results.push("✅ mindar-image-system initializes");
-            
-            // Test that default values work
-            if (typeof system.frameOnlyMode === 'undefined' || system.frameOnlyMode === false) {
-                results.push("✅ frameOnlyMode defaults to false (backward compatible)");
-            } else {
-                results.push("❌ frameOnlyMode not properly defaulted");
-            }
             
             if (typeof system.frameThickness === 'undefined' || system.frameThickness === 0.1) {
                 results.push("✅ frameThickness defaults to 0.1 (backward compatible)");
@@ -96,7 +88,6 @@
                 system.setup({
                     imageTargetSrc: './assets/targets/card.mind',
                     maxTrack: 1,
-                    frameOnlyMode: true,
                     frameThickness: 0.15
                 });
                 results.push("✅ System setup works with new frame parameters");
@@ -123,8 +114,6 @@
             
             resultsDiv.style.display = 'block';
             
-            // Update status display
-            document.getElementById('frameMode').textContent = system.frameOnlyMode || 'false (default)';
             document.getElementById('frameThickness').textContent = system.frameThickness || '0.1 (default)';
             document.getElementById('backwardCompatResult').textContent = '✅ All backward compatibility tests passed!';
         }

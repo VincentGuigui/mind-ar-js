@@ -14,6 +14,23 @@ const MIN_THRESH = 0.2;
 const SD_THRESH = 8.0;
 const OCCUPANCY_SIZE = 24 * 2 / 3;
 
+/**
+ * Check if a point (x, y) is within the frame border area
+ */
+const isInFrameArea = (x, y, width, height, frameOnlyDetectionThickness) => {
+    if (frameOnlyDetectionThickness == 0) return true;
+
+    const frameWidthPixels = Math.floor(width * frameOnlyDetectionThickness);
+    const frameHeightPixels = Math.floor(height * frameOnlyDetectionThickness);
+
+    // Check if point is in outer border but not in inner area
+    const inOuterArea = x >= 0 && x < width && y >= 0 && y < height;
+    const inInnerArea = x >= frameWidthPixels && x < width - frameWidthPixels &&
+        y >= frameHeightPixels && y < height - frameHeightPixels;
+
+    return inOuterArea && !inInnerArea;
+};
+
 /*
  * Input image is in grey format. the imageData array size is width * height. value range from 0-255
  * pixel value at row r and c = imageData[r * width + c]
@@ -21,28 +38,10 @@ const OCCUPANCY_SIZE = 24 * 2 / 3;
  * @param {Uint8Array} options.imageData
  * @param {int} options.width image width
  * @param {int} options.height image height
- * @param {boolean} frameOnlyMode - if true, only extract features from frame border
- * @param {number} frameThickness - percentage of width/height for frame thickness
+ * @param {number} frameOnlyDetectionThickness - percentage of width/height for frame thickness
  */
-const extract = (image, frameOnlyMode = false, frameThickness = 0.1) => {
+const extract = (image, frameOnlyDetectionThickness = 0) => {
   const {data: imageData, width, height, scale} = image;
-
-  /**
-   * Check if a point (x, y) is within the frame border area
-   */
-  const isInFrameArea = (x, y) => {
-    if (!frameOnlyMode) return true;
-    
-    const frameWidthPixels = Math.floor(width * frameThickness);
-    const frameHeightPixels = Math.floor(height * frameThickness);
-    
-    // Check if point is in outer border but not in inner area
-    const inOuterArea = x >= 0 && x < width && y >= 0 && y < height;
-    const inInnerArea = x >= frameWidthPixels && x < width - frameWidthPixels && 
-                       y >= frameHeightPixels && y < height - frameHeightPixels;
-    
-    return inOuterArea && !inInnerArea;
-  };
 
   // Step 1 - filter out interesting points. Interesting points have strong pixel value changed across neighbours
   const isPixelSelected = [width * height];
@@ -66,8 +65,8 @@ const extract = (image, frameOnlyMode = false, frameThickness = 0.1) => {
     for (let j = 1; j < height-1; j++) {
       let pos = i + width * j;
 
-      // Skip if not in frame area when frame mode is enabled
-      if (!isInFrameArea(i, j)) {
+        // Skip if not in frame area when frame mode is enabled
+        if (!isInFrameArea(i, j, width, height, frameOnlyDetectionThickness)) {
         continue;
       }
 
@@ -94,7 +93,7 @@ const extract = (image, frameOnlyMode = false, frameThickness = 0.1) => {
       let pos = i + width * j;
       
       // Skip if not in frame area when frame mode is enabled
-      if (!isInFrameArea(i, j)) {
+      if (!isInFrameArea(i, j, width, height, frameOnlyDetectionThickness)) {
         continue;
       }
       
@@ -187,31 +186,14 @@ const extract = (image, frameOnlyMode = false, frameThickness = 0.1) => {
   }
 
   // Step 2.2 select feature
-  const coords = _selectFeature({image, featureMap, templateSize: TEMPLATE_SIZE, searchSize: SEARCH_SIZE2, occSize: OCCUPANCY_SIZE, maxSimThresh: MAX_THRESH, minSimThresh: MIN_THRESH, sdThresh: SD_THRESH, imageDataCumsum, imageDataSqrCumsum, frameOnlyMode, frameThickness});
+  const coords = _selectFeature({image, featureMap, templateSize: TEMPLATE_SIZE, searchSize: SEARCH_SIZE2, occSize: OCCUPANCY_SIZE, maxSimThresh: MAX_THRESH, minSimThresh: MIN_THRESH, sdThresh: SD_THRESH, imageDataCumsum, imageDataSqrCumsum, frameOnlyDetectionThickness});
 
   return coords;
 }
 
 const _selectFeature = (options) => {
-  let {image, featureMap, templateSize, searchSize, occSize, maxSimThresh, minSimThresh, sdThresh, imageDataCumsum, imageDataSqrCumsum, frameOnlyMode, frameThickness} = options;
+  let {image, featureMap, templateSize, searchSize, occSize, maxSimThresh, minSimThresh, sdThresh, imageDataCumsum, imageDataSqrCumsum, frameOnlyDetectionThickness} = options;
   const {data: imageData, width, height, scale} = image;
-
-  /**
-   * Check if a point (x, y) is within the frame border area
-   */
-  const isInFrameArea = (x, y) => {
-    if (!frameOnlyMode) return true;
-    
-    const frameWidthPixels = Math.floor(width * frameThickness);
-    const frameHeightPixels = Math.floor(height * frameThickness);
-    
-    // Check if point is in outer border but not in inner area
-    const inOuterArea = x >= 0 && x < width && y >= 0 && y < height;
-    const inInnerArea = x >= frameWidthPixels && x < width - frameWidthPixels && 
-                       y >= frameHeightPixels && y < height - frameHeightPixels;
-    
-    return inOuterArea && !inInnerArea;
-  };
 
   //console.log("params: ", templateSize, templateSize, occSize, maxSimThresh, minSimThresh, sdThresh);
 
@@ -239,7 +221,7 @@ const _selectFeature = (options) => {
     for (let j = 0; j < height; j++) {
       for (let i = 0; i < width; i++) {
         // Skip if not in frame area when frame mode is enabled
-        if (!isInFrameArea(i, j)) {
+        if (!isInFrameArea(i, j, width, height, frameOnlyDetectionThickness)) {
           continue;
         }
         

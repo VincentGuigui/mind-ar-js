@@ -26,12 +26,11 @@ const FREAK_EXPANSION_FACTOR = 7.0;
 const FREAK_CONPARISON_COUNT = (FREAKPOINTS.length - 1) * (FREAKPOINTS.length) / 2; // 666
 
 class Detector {
-	constructor(width, height, debugMode = false, frameOnlyMode = false, frameThickness = 0.1) {
+	constructor(width, height, debugMode = false, frameOnlyDetectionThickness = 0.0) {
 		this.debugMode = debugMode;
 		this.width = width;
 		this.height = height;
-		this.frameOnlyMode = frameOnlyMode;
-		this.frameThickness = frameThickness; // percentage of width/height
+		this.frameOnlyDetectionThickness = frameOnlyDetectionThickness; // percentage of width/height
 		let numOctaves = 0;
 		while (width >= PYRAMID_MIN_SIZE && height >= PYRAMID_MIN_SIZE) {
 			width /= 2;
@@ -54,10 +53,10 @@ class Detector {
 	 * @returns {boolean} true if point is in frame border area
 	 */
 	_isInFrameArea(x, y, width, height) {
-		if (!this.frameOnlyMode) return true;
+		if (this.frameOnlyDetectionThickness == 0) return true;
 		
-		const frameWidthPixels = Math.floor(width * this.frameThickness);
-		const frameHeightPixels = Math.floor(height * this.frameThickness);
+		const frameWidthPixels = Math.floor(width * this.frameOnlyDetectionThickness);
+		const frameHeightPixels = Math.floor(height * this.frameOnlyDetectionThickness);
 		
 		// Check if point is in outer border but not in inner area
 		const inOuterArea = x >= 0 && x < width && y >= 0 && y < height;
