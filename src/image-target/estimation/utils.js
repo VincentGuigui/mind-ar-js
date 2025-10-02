@@ -48,7 +48,7 @@ const applyModelViewProjectionTransform = (modelViewProjectionTransform, x, y, z
   return {x: ux, y: uy, z: uz};
 }
 
-const computeScreenCoordiate = (modelViewProjectionTransform, x, y, z) => {
+const computeScreenCoordinate = (modelViewProjectionTransform, x, y, z) => {
   const {x: ux, y: uy, z: uz} = applyModelViewProjectionTransform(modelViewProjectionTransform, x, y, z);
   //if( Math.abs(uz) < 0.000001 ) return null;
   return {x: ux/uz, y: uy/uz};
@@ -72,5 +72,5 @@ const screenToMarkerCoordinate = (modelViewProjectionTransform, sx, sy) => {
 export {
   buildModelViewProjectionTransform,
   applyModelViewProjectionTransform,
-  computeScreenCoordiate,
+  computeScreenCoordinate,
 }

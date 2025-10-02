@@ -3,6 +3,7 @@
 import * as tf from '@tensorflow/tfjs';
 import { FREAKPOINTS } from './freak.js';
 import './kernels/webgl/index.js';
+import { isInFrameArea } from '../utils/isInFrameArea.js';
 const PYRAMID_MIN_SIZE = 8;
 const PYRAMID_MAX_OCTAVE = 5;
 
@@ -26,12 +27,12 @@ const FREAK_EXPANSION_FACTOR = 7.0;
 const FREAK_CONPARISON_COUNT = (FREAKPOINTS.length - 1) * (FREAKPOINTS.length) / 2; // 666
 
 class Detector {
-	constructor(width, height, debugMode = false, frameOnlyDetectionThickness = {top: 0, right: 0, bottom: 0, left: 0}) {
+	constructor(width, height, debugMode = false, frameDetection = {top: 0, right: 0, bottom: 0, left: 0}) {
 		this.debugMode = debugMode;
 		this.width = width;
 		this.height = height;
-		// frameOnlyDetectionThickness: {top, right, bottom, left} - percentage of height (top/bottom) or width (left/right)
-		this.frameOnlyDetectionThickness = frameOnlyDetectionThickness;
+		// frameDetection: {top, right, bottom, left} - percentage of height (top/bottom) or width (left/right)
+		this.frameDetection = frameDetection;
 		let numOctaves = 0;
 		while (width >= PYRAMID_MIN_SIZE && height >= PYRAMID_MIN_SIZE) {
 			width /= 2;
@@ -43,31 +44,6 @@ class Detector {
 
 		this.tensorCaches = {};
 		this.kernelCaches = {};
-	}
-
-	/**
-	 * Check if a point (x, y) is within the frame border area
-	 * @param {number} x - x coordinate 
-	 * @param {number} y - y coordinate
-	 * @param {number} width - image width
-	 * @param {number} height - image height
-	 * @returns {boolean} true if point is in frame border area
-	 */
-	_isInFrameArea(x, y, width, height) {
-		const thickness = this.frameOnlyDetectionThickness;
-		if (thickness.top === 0 && thickness.right === 0 && thickness.bottom === 0 && thickness.left === 0) return true;
-		
-		const topPixels = Math.floor(height * thickness.top);
-		const bottomPixels = Math.floor(height * thickness.bottom);
-		const leftPixels = Math.floor(width * thickness.left);
-		const rightPixels = Math.floor(width * thickness.right);
-		
-		// Check if point is in outer border but not in inner area
-		const inOuterArea = x >= 0 && x < width && y >= 0 && y < height;
-		const inInnerArea = x >= leftPixels && x < width - rightPixels && 
-		                   y >= topPixels && y < height - bottomPixels;
-		
-		return inOuterArea && !inInnerArea;
 	}
 
 	// used in compiler
@@ -826,7 +802,7 @@ class Detector {
 						const originalY = y * Math.pow(2, octave);
 						
 						// Skip if not in frame area when frame mode is enabled
-						if (!this._isInFrameArea(originalX, originalY, this.width, this.height)) {
+						if (!isInFrameArea(originalX, originalY, this.width, this.height, this.frameDetection)) {
 							continue;
 						}
 

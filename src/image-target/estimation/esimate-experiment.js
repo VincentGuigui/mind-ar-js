@@ -2,7 +2,7 @@
 import {Matrix, inverse} from 'ml-matrix';
 import {SVD} from "svd-js";
 import {solveHomography} from '../utils/homography';
-import {computeScreenCoordiate} from "./utils";
+import {computeScreenCoordinate} from "./utils";
 
 const opposites_of_minors = (M, row, col) => {
   let x1 = col === 0? 1: 0;
@@ -239,7 +239,7 @@ const estimate = ({screenCoords, worldCoords, projectionTransform}) => {
       console.log("map", worldCoords[i], screenCoords[i]);
       console.log("mapped", world, world2, screen);
 
-      //const mapped = computeScreenCoordiate(modelViewProjectionTransform, worldCoords[i].x, worldCoords[i].y, 0);
+      //const mapped = computeScreenCoordinate(modelViewProjectionTransform, worldCoords[i].x, worldCoords[i].y, 0);
       //console.log("mapped", worldCoords[i], screenCoords[i], mapped);
       //console.log("mapped", worldCoords[i], screenCoords[i], kx2, ky2, mapped);
     }
@@ -251,8 +251,8 @@ const estimate = ({screenCoords, worldCoords, projectionTransform}) => {
     for (let i = 0; i < worldCoords.length; i++) {
       let world = applyMatrix(KInvArr, [worldCoords[i].x, worldCoords[i].y]);
       let screen = applyMatrix(KInvArr, [screenCoords[i].x, screenCoords[i].y]);
-      //const mapped = computeScreenCoordiate(modelViewProjectionTransform, worldCoords[i].x, worldCoords[i].y, 0);
-      const mapped = computeScreenCoordiate(modelViewProjectionTransform, world[0], world[1], 0);
+      //const mapped = computeScreenCoordinate(modelViewProjectionTransform, worldCoords[i].x, worldCoords[i].y, 0);
+      const mapped = computeScreenCoordinate(modelViewProjectionTransform, world[0], world[1], 0);
       console.log("mapped", worldCoords[i], screenCoords[i], world, screen, mapped);
     }
   }
@@ -283,7 +283,7 @@ const estimate = ({screenCoords, worldCoords, projectionTransform}) => {
   */
 
   for (let i = 0; i < worldCoords.length; i++) {
-    const mapped = computeScreenCoordiate(modelViewProjectionTransform, worldCoords[i].x, worldCoords[i].y, 0);
+    const mapped = computeScreenCoordinate(modelViewProjectionTransform, worldCoords[i].x, worldCoords[i].y, 0);
     console.log("mapped", worldCoords[i], screenCoords[i], mapped);
   }
 

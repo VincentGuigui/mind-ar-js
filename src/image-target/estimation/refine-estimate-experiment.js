@@ -9,7 +9,7 @@
  *
  */
 import {Matrix, inverse} from 'ml-matrix';
-import {applyModelViewProjectionTransform, buildModelViewProjectionTransform, computeScreenCoordiate} from './utils.js';
+import {applyModelViewProjectionTransform, buildModelViewProjectionTransform, computeScreenCoordinate} from './utils.js';
 
 const TRACKING_THRESH = 5.0; // default
 const K2_FACTOR = 4.0; // Question: should it be relative to the size of the screen instead of hardcoded?
@@ -97,7 +97,7 @@ const _doICP = ({initialModelViewTransform, projectionTransform, worldCoords, sc
     const modelViewProjectionTransform = buildModelViewProjectionTransform(projectionTransform, modelViewTransform);
 
     for (let n = 0; n < worldCoords.length; n++) {
-      const u = computeScreenCoordiate(modelViewProjectionTransform, worldCoords[n].x, worldCoords[n].y, worldCoords[n].z);
+      const u = computeScreenCoordinate(modelViewProjectionTransform, worldCoords[n].x, worldCoords[n].y, worldCoords[n].z);
       const dx = screenCoords[n].x - u.x;
       const dy = screenCoords[n].y - u.y;
 

@@ -14,12 +14,12 @@ export class MindARThree {
   constructor({
     container, imageTargetSrc, maxTrack, uiLoading = "yes", uiScanning = "yes", uiError = "yes",
     filterMinCF = null, filterBeta = null, warmupTolerance = null, missTolerance = null,
-    userDeviceId = null, environmentDeviceId = null, frameOnlyDetectionThickness = {top: 0, right: 0, bottom: 0, left: 0}
+    userDeviceId = null, environmentDeviceId = null, frameDetection = {top: 0, right: 0, bottom: 0, left: 0}
   }) {
     this.container = container;
     this.imageTargetSrc = imageTargetSrc;
     this.maxTrack = maxTrack;
-    this.frameOnlyDetectionThickness = frameOnlyDetectionThickness;
+    this.frameDetection = frameDetection;
     this.filterMinCF = filterMinCF;
     this.filterBeta = filterBeta;
     this.warmupTolerance = warmupTolerance;
@@ -152,7 +152,7 @@ export class MindARThree {
         warmupTolerance: this.warmupTolerance,
         missTolerance: this.missTolerance,
         maxTrack: this.maxTrack,
-        frameOnlyDetectionThickness: this.frameOnlyDetectionThickness,
+        frameDetection: this.frameDetection,
         onUpdate: (data) => {
           if (data.type === 'updateMatrix') {
             const { targetIndex, worldMatrix } = data;

@@ -16,17 +16,17 @@ const DEFAULT_MISS_TOLERANCE = 5;
 class Controller {
   constructor({inputWidth, inputHeight, onUpdate=null, debugMode=false, maxTrack=1, 
     warmupTolerance=null, missTolerance=null, filterMinCF=null, filterBeta=null,
-    frameOnlyDetectionThickness={top: 0, right: 0, bottom: 0, left: 0}}) {
+    frameDetection={top: 0, right: 0, bottom: 0, left: 0}}) {
 
     this.inputWidth = inputWidth;
     this.inputHeight = inputHeight;
     this.maxTrack = maxTrack;
-    this.frameOnlyDetectionThickness = frameOnlyDetectionThickness;
+    this.frameDetection = frameDetection;
     this.filterMinCF = filterMinCF === null? DEFAULT_FILTER_CUTOFF: filterMinCF;
     this.filterBeta = filterBeta === null? DEFAULT_FILTER_BETA: filterBeta;
     this.warmupTolerance = warmupTolerance === null? DEFAULT_WARMUP_TOLERANCE: warmupTolerance;
     this.missTolerance = missTolerance === null? DEFAULT_MISS_TOLERANCE: missTolerance;
-    this.cropDetector = new CropDetector(this.inputWidth, this.inputHeight, debugMode, frameOnlyDetectionThickness);
+    this.cropDetector = new CropDetector(this.inputWidth, this.inputHeight, debugMode, frameDetection);
     this.inputLoader = new InputLoader(this.inputWidth, this.inputHeight);
     this.markerDimensions = null;
     this.onUpdate = onUpdate;
@@ -97,7 +97,7 @@ class Controller {
       dimensions.push([dataList[i].targetImage.width, dataList[i].targetImage.height]);
     }
 
-    this.tracker = new Tracker(dimensions, trackingDataList, this.projectionTransform, this.inputWidth, this.inputHeight, this.debugMode, this.frameOnlyDetectionThickness);
+    this.tracker = new Tracker(dimensions, trackingDataList, this.projectionTransform, this.inputWidth, this.inputHeight, this.debugMode, this.frameDetection);
 
     this.worker.postMessage({
       type: 'setup',

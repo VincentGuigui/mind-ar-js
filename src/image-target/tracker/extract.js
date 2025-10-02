@@ -1,4 +1,5 @@
 import {Cumsum} from '../utils/cumsum.js';
+import { isInFrameArea } from '../utils/isInFrameArea.js';
 
 const SEARCH_SIZE1 = 10;
 const SEARCH_SIZE2 = 2;
@@ -14,26 +15,6 @@ const MIN_THRESH = 0.2;
 const SD_THRESH = 8.0;
 const OCCUPANCY_SIZE = 24 * 2 / 3;
 
-/**
- * Check if a point (x, y) is within the frame border area
- */
-const isInFrameArea = (x, y, width, height, frameOnlyDetectionThickness) => {
-    if (frameOnlyDetectionThickness.top === 0 && frameOnlyDetectionThickness.right === 0 && 
-        frameOnlyDetectionThickness.bottom === 0 && frameOnlyDetectionThickness.left === 0) return true;
-
-    const topPixels = Math.floor(height * frameOnlyDetectionThickness.top);
-    const bottomPixels = Math.floor(height * frameOnlyDetectionThickness.bottom);
-    const leftPixels = Math.floor(width * frameOnlyDetectionThickness.left);
-    const rightPixels = Math.floor(width * frameOnlyDetectionThickness.right);
-
-    // Check if point is in outer border but not in inner area
-    const inOuterArea = x >= 0 && x < width && y >= 0 && y < height;
-    const inInnerArea = x >= leftPixels && x < width - rightPixels &&
-        y >= topPixels && y < height - bottomPixels;
-
-    return inOuterArea && !inInnerArea;
-};
-
 /*
  * Input image is in grey format. the imageData array size is width * height. value range from 0-255
  * pixel value at row r and c = imageData[r * width + c]
@@ -41,9 +22,9 @@ const isInFrameArea = (x, y, width, height, frameOnlyDetectionThickness) => {
  * @param {Uint8Array} options.imageData
  * @param {int} options.width image width
  * @param {int} options.height image height
- * @param {object} frameOnlyDetectionThickness - {top, right, bottom, left} - percentage of height (top/bottom) or width (left/right)
+ * @param {object} frameDetection - {top, right, bottom, left} - percentage of height (top/bottom) or width (left/right)
  */
-const extract = (image, frameOnlyDetectionThickness = {top: 0, right: 0, bottom: 0, left: 0}) => {
+const extract = (image, frameDetection = {top: 0, right: 0, bottom: 0, left: 0}) => {
   const {data: imageData, width, height, scale} = image;
 
   // Step 1 - filter out interesting points. Interesting points have strong pixel value changed across neighbours
@@ -69,7 +50,7 @@ const extract = (image, frameOnlyDetectionThickness = {top: 0, right: 0, bottom:
       let pos = i + width * j;
 
         // Skip if not in frame area when frame mode is enabled
-        if (!isInFrameArea(i, j, width, height, frameOnlyDetectionThickness)) {
+        if (!isInFrameArea(i, j, width, height, frameDetection)) {
         continue;
       }
 
@@ -96,7 +77,7 @@ const extract = (image, frameOnlyDetectionThickness = {top: 0, right: 0, bottom:
       let pos = i + width * j;
       
       // Skip if not in frame area when frame mode is enabled
-      if (!isInFrameArea(i, j, width, height, frameOnlyDetectionThickness)) {
+      if (!isInFrameArea(i, j, width, height, frameDetection)) {
         continue;
       }
       
@@ -189,13 +170,13 @@ const extract = (image, frameOnlyDetectionThickness = {top: 0, right: 0, bottom:
   }
 
   // Step 2.2 select feature
-  const coords = _selectFeature({image, featureMap, templateSize: TEMPLATE_SIZE, searchSize: SEARCH_SIZE2, occSize: OCCUPANCY_SIZE, maxSimThresh: MAX_THRESH, minSimThresh: MIN_THRESH, sdThresh: SD_THRESH, imageDataCumsum, imageDataSqrCumsum, frameOnlyDetectionThickness});
+  const coords = _selectFeature({image, featureMap, templateSize: TEMPLATE_SIZE, searchSize: SEARCH_SIZE2, occSize: OCCUPANCY_SIZE, maxSimThresh: MAX_THRESH, minSimThresh: MIN_THRESH, sdThresh: SD_THRESH, imageDataCumsum, imageDataSqrCumsum, frameDetection});
 
   return coords;
 }
 
 const _selectFeature = (options) => {
-  let {image, featureMap, templateSize, searchSize, occSize, maxSimThresh, minSimThresh, sdThresh, imageDataCumsum, imageDataSqrCumsum, frameOnlyDetectionThickness} = options;
+  let {image, featureMap, templateSize, searchSize, occSize, maxSimThresh, minSimThresh, sdThresh, imageDataCumsum, imageDataSqrCumsum, frameDetection} = options;
   const {data: imageData, width, height, scale} = image;
 
   //console.log("params: ", templateSize, templateSize, occSize, maxSimThresh, minSimThresh, sdThresh);
@@ -224,7 +205,7 @@ const _selectFeature = (options) => {
     for (let j = 0; j < height; j++) {
       for (let i = 0; i < width; i++) {
         // Skip if not in frame area when frame mode is enabled
-        if (!isInFrameArea(i, j, width, height, frameOnlyDetectionThickness)) {
+        if (!isInFrameArea(i, j, width, height, frameDetection)) {
           continue;
         }
         

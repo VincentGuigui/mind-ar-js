@@ -1,5 +1,6 @@
 import * as tf from '@tensorflow/tfjs';
-import {buildModelViewProjectionTransform, computeScreenCoordiate} from '../estimation/utils.js';
+import { buildModelViewProjectionTransform, computeScreenCoordinate } from '../estimation/utils.js';
+import { isInFrameArea } from '../utils/isInFrameArea.js';
 
 const AR2_DEFAULT_TS = 6;
 const AR2_DEFAULT_TS_GAP = 1;
@@ -16,140 +17,116 @@ const TRACKING_KEYFRAME = 1; // 0: 256px, 1: 128px
 const PRECISION_ADJUST = 1000;
 
 class Tracker {
-  constructor(markerDimensions, trackingDataList, projectionTransform, inputWidth, inputHeight, debugMode=false, frameOnlyDetectionThickness = {top: 0, right: 0, bottom: 0, left: 0}) {
-    this.markerDimensions = markerDimensions;
-    this.trackingDataList = trackingDataList;
-    this.projectionTransform = projectionTransform;
-    this.debugMode = debugMode;
-    // frameOnlyDetectionThickness: {top, right, bottom, left} - percentage of height (top/bottom) or width (left/right)
-    this.frameOnlyDetectionThickness = frameOnlyDetectionThickness;
+    constructor(markerDimensions, trackingDataList, projectionTransform, inputWidth, inputHeight, debugMode = false, frameDetection = { top: 0, right: 0, bottom: 0, left: 0 }) {
+        this.markerDimensions = markerDimensions;
+        this.trackingDataList = trackingDataList;
+        this.projectionTransform = projectionTransform;
+        this.debugMode = debugMode;
+        // frameDetection: {top, right, bottom, left} - percentage of height (top/bottom) or width (left/right)
+        this.frameDetection = frameDetection;
 
-    this.trackingKeyframeList = [];
-    for (let i = 0; i < trackingDataList.length; i++) {
-      this.trackingKeyframeList.push(trackingDataList[i][TRACKING_KEYFRAME]);
+        this.trackingKeyframeList = [];
+        for (let i = 0; i < trackingDataList.length; i++) {
+            this.trackingKeyframeList.push(trackingDataList[i][TRACKING_KEYFRAME]);
+        }
+
+        // prebuild feature and marker pixel tensors
+        let maxCount = 0;
+        for (let i = 0; i < this.trackingKeyframeList.length; i++) {
+            maxCount = Math.max(maxCount, this.trackingKeyframeList[i].points.length);
+        }
+        this.featurePointsListT = [];
+        this.imagePixelsListT = [];
+        this.imagePropertiesListT = [];
+
+        for (let i = 0; i < this.trackingKeyframeList.length; i++) {
+            const { featurePoints, imagePixels, imageProperties } = this._prebuild(this.trackingKeyframeList[i], maxCount);
+            this.featurePointsListT[i] = featurePoints;
+            this.imagePixelsListT[i] = imagePixels;
+            this.imagePropertiesListT[i] = imageProperties;
+        }
+
+        this.kernelCaches = {};
     }
 
-    // prebuild feature and marker pixel tensors
-    let maxCount = 0;
-    for (let i = 0; i < this.trackingKeyframeList.length; i++) {
-      maxCount = Math.max(maxCount, this.trackingKeyframeList[i].points.length);
-    }
-    this.featurePointsListT = [];
-    this.imagePixelsListT = [];
-    this.imagePropertiesListT = [];
-
-    for (let i = 0; i < this.trackingKeyframeList.length; i++) {
-      const {featurePoints, imagePixels, imageProperties} = this._prebuild(this.trackingKeyframeList[i], maxCount);
-      this.featurePointsListT[i] = featurePoints;
-      this.imagePixelsListT[i] = imagePixels;
-      this.imagePropertiesListT[i] = imageProperties;
+    dummyRun(inputT) {
+        let transform = [[1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1]];
+        for (let targetIndex = 0; targetIndex < this.featurePointsListT.length; targetIndex++) {
+            this.track(inputT, transform, targetIndex);
+        }
     }
 
-    this.kernelCaches = {};
-  }
+    track(inputImageT, lastModelViewTransform, targetIndex) {
+        let debugExtra = {};
 
-  /**
-   * Check if a point (x, y) is within the frame border area
-   * @param {number} x - x coordinate 
-   * @param {number} y - y coordinate
-   * @param {number} width - image width
-   * @param {number} height - image height
-   * @returns {boolean} true if point is in frame border area
-   */
-  _isInFrameArea(x, y, width, height) {
-    const thickness = this.frameOnlyDetectionThickness;
-    if (thickness.top === 0 && thickness.right === 0 && thickness.bottom === 0 && thickness.left === 0) return true;
-    
-    const topPixels = Math.floor(height * thickness.top);
-    const bottomPixels = Math.floor(height * thickness.bottom);
-    const leftPixels = Math.floor(width * thickness.left);
-    const rightPixels = Math.floor(width * thickness.right);
-    
-    // Check if point is in outer border but not in inner area
-    const inOuterArea = x >= 0 && x < width && y >= 0 && y < height;
-    const inInnerArea = x >= leftPixels && x < width - rightPixels && 
-                       y >= topPixels && y < height - bottomPixels;
-    
-    return inOuterArea && !inInnerArea;
-  }
+        const modelViewProjectionTransform = buildModelViewProjectionTransform(this.projectionTransform, lastModelViewTransform);
+        const modelViewProjectionTransformT = this._buildAdjustedModelViewTransform(modelViewProjectionTransform);
 
-  dummyRun(inputT) {
-    let transform = [[1,1,1,1], [1,1,1,1], [1,1,1,1]];
-    for (let targetIndex = 0; targetIndex < this.featurePointsListT.length; targetIndex++) {
-      this.track(inputT, transform, targetIndex);
-    }
-  }
+        const markerWidth = this.markerDimensions[targetIndex][0];
+        const markerHeight = this.markerDimensions[targetIndex][1];
+        const keyframeWidth = this.trackingKeyframeList[targetIndex].width;
+        const keyframeHeight = this.trackingKeyframeList[targetIndex].height;
 
-  track(inputImageT, lastModelViewTransform, targetIndex) {
-    let debugExtra = {};
+        const featurePointsT = this.featurePointsListT[targetIndex];
+        const imagePixelsT = this.imagePixelsListT[targetIndex];
+        const imagePropertiesT = this.imagePropertiesListT[targetIndex];
 
-    const modelViewProjectionTransform = buildModelViewProjectionTransform(this.projectionTransform, lastModelViewTransform);
-    const modelViewProjectionTransformT = this._buildAdjustedModelViewTransform(modelViewProjectionTransform);
+        const projectedImageT = this._computeProjection(modelViewProjectionTransformT, inputImageT, targetIndex);
 
-    const markerWidth = this.markerDimensions[targetIndex][0];
-    const markerHeight = this.markerDimensions[targetIndex][1];
-    const keyframeWidth = this.trackingKeyframeList[targetIndex].width; 
-    const keyframeHeight = this.trackingKeyframeList[targetIndex].height; 
+        const { matchingPointsT, simT } = this._computeMatching(featurePointsT, imagePixelsT, imagePropertiesT, projectedImageT);
 
-    const featurePointsT = this.featurePointsListT[targetIndex];
-    const imagePixelsT = this.imagePixelsListT[targetIndex];
-    const imagePropertiesT = this.imagePropertiesListT[targetIndex];
+        const matchingPoints = matchingPointsT.arraySync();
+        const sim = simT.arraySync();
 
-    const projectedImageT = this._computeProjection(modelViewProjectionTransformT, inputImageT, targetIndex);
+        const trackingFrame = this.trackingKeyframeList[targetIndex];
+        const worldCoords = [];
+        const screenCoords = [];
+        const goodTrack = [];
 
-    const {matchingPointsT, simT} = this._computeMatching(featurePointsT, imagePixelsT, imagePropertiesT, projectedImageT);
+        for (let i = 0; i < matchingPoints.length; i++) {
+            if (sim[i] > AR2_SIM_THRESH && i < trackingFrame.points.length
+                && isInFrameArea(x, y, keyframeWidth, keyframeHeight, this.frameDetection)) {
+                goodTrack.push(i);
+                const point = computeScreenCoordinate(modelViewProjectionTransform, matchingPoints[i][0], matchingPoints[i][1]);
+                screenCoords.push(point);
+                worldCoords.push({ x: trackingFrame.points[i].x / trackingFrame.scale, y: trackingFrame.points[i].y / trackingFrame.scale, z: 0 });
+            }
+        }
 
-    const matchingPoints = matchingPointsT.arraySync();
-    const sim = simT.arraySync();
+        if (this.debugMode) {
+            debugExtra = {
+                projectedImage: projectedImageT.arraySync(),
+                matchingPoints: matchingPointsT.arraySync(),
+                goodTrack,
+                trackedPoints: screenCoords
+            }
+        }
 
-    const trackingFrame = this.trackingKeyframeList[targetIndex];
-    const worldCoords = [];
-    const screenCoords = [];
-    const goodTrack = [];
+        // tensors cleanup
+        modelViewProjectionTransformT.dispose();
+        projectedImageT.dispose();
+        matchingPointsT.dispose();
+        simT.dispose();
 
-    for (let i = 0; i < matchingPoints.length; i++) {
-      if (sim[i] > AR2_SIM_THRESH && i < trackingFrame.points.length) {
-	goodTrack.push(i);
-	const point = computeScreenCoordiate(modelViewProjectionTransform, matchingPoints[i][0], matchingPoints[i][1]);
-	screenCoords.push(point);
-	worldCoords.push({x: trackingFrame.points[i].x / trackingFrame.scale, y: trackingFrame.points[i].y / trackingFrame.scale, z: 0});
-      }
+        return { worldCoords, screenCoords, debugExtra };
     }
 
-    if (this.debugMode) {
-      debugExtra = {
-	projectedImage: projectedImageT.arraySync(),
-	matchingPoints: matchingPointsT.arraySync(),
-	goodTrack,
-	trackedPoints: screenCoords
-      }
-    }
+    _computeMatching(featurePointsT, imagePixelsT, imagePropertiesT, projectedImageT) {
+        const templateOneSize = AR2_DEFAULT_TS;
+        const templateSize = templateOneSize * 2 + 1;
+        const templateGap = AR2_DEFAULT_TS_GAP;
+        const searchOneSize = AR2_SEARCH_SIZE * templateGap;
+        const searchGap = AR2_SEARCH_GAP;
+        const searchSize = searchOneSize * 2 + 1;
+        const targetHeight = projectedImageT.shape[0];
+        const targetWidth = projectedImageT.shape[1];
+        const featureCount = featurePointsT.shape[0];
 
-    // tensors cleanup
-    modelViewProjectionTransformT.dispose();
-    projectedImageT.dispose();
-    matchingPointsT.dispose();
-    simT.dispose();
-
-    return {worldCoords, screenCoords, debugExtra};
-  }
-
-  _computeMatching(featurePointsT, imagePixelsT, imagePropertiesT, projectedImageT) {
-    const templateOneSize = AR2_DEFAULT_TS;
-    const templateSize = templateOneSize * 2 + 1;
-    const templateGap = AR2_DEFAULT_TS_GAP;
-    const searchOneSize = AR2_SEARCH_SIZE * templateGap;
-    const searchGap = AR2_SEARCH_GAP;
-    const searchSize = searchOneSize * 2 + 1;
-    const targetHeight = projectedImageT.shape[0];
-    const targetWidth = projectedImageT.shape[1];
-    const featureCount = featurePointsT.shape[0];
-
-    if (!this.kernelCaches.computeMatching) {
-      const kernel1 = {
-	variableNames: ['features', 'markerPixels', 'markerProperties', 'targetPixels'],
-	outputShape: [featureCount, searchSize * searchSize],
-	userCode: `
+        if (!this.kernelCaches.computeMatching) {
+            const kernel1 = {
+                variableNames: ['features', 'markerPixels', 'markerProperties', 'targetPixels'],
+                outputShape: [featureCount, searchSize * searchSize],
+                userCode: `
 	  void main() {
 	    ivec2 coords = getOutputCoords();
 
@@ -218,12 +195,12 @@ class Tracker {
 	    }
 	  }
 	`
-      };
+            };
 
-      const kernel2 = {
-	variableNames: ['featurePoints', 'markerProperties', 'maxIndex'],
-	outputShape: [featureCount, 2], // [x, y]
-	userCode: `
+            const kernel2 = {
+                variableNames: ['featurePoints', 'markerProperties', 'maxIndex'],
+                outputShape: [featureCount, 2], // [x, y]
+                userCode: `
 	  void main() {
 	    ivec2 coords = getOutputCoords();
 
@@ -245,48 +222,48 @@ class Tracker {
 	    }
 	  }
 	`
-      }
+            }
 
-      const kernel3 = {
-	variableNames: ['sims', 'maxIndex'],
-	outputShape: [featureCount],
-	userCode: `
+            const kernel3 = {
+                variableNames: ['sims', 'maxIndex'],
+                outputShape: [featureCount],
+                userCode: `
 	  void main() {
 	    int featureIndex = getOutputCoords();
 	    int maxIndex = int(getMaxIndex(featureIndex));
 	    setOutput(getSims(featureIndex, maxIndex));
 	  }
 	`
-      }
+            }
 
-      this.kernelCaches.computeMatching = [kernel1, kernel2, kernel3];
+            this.kernelCaches.computeMatching = [kernel1, kernel2, kernel3];
+        }
+
+        return tf.tidy(() => {
+            const programs = this.kernelCaches.computeMatching;
+            const allSims = this._compileAndRun(programs[0], [featurePointsT, imagePixelsT, imagePropertiesT, projectedImageT]);
+            const maxIndex = allSims.argMax(1);
+            const matchingPointsT = this._compileAndRun(programs[1], [featurePointsT, imagePropertiesT, maxIndex]);
+            const simT = this._compileAndRun(programs[2], [allSims, maxIndex]);
+            return { matchingPointsT, simT };
+        });
     }
 
-    return tf.tidy(() => {
-      const programs = this.kernelCaches.computeMatching;
-      const allSims = this._compileAndRun(programs[0], [featurePointsT, imagePixelsT, imagePropertiesT, projectedImageT]);
-      const maxIndex = allSims.argMax(1);
-      const matchingPointsT = this._compileAndRun(programs[1], [featurePointsT, imagePropertiesT, maxIndex]);
-      const simT = this._compileAndRun(programs[2], [allSims, maxIndex]);
-      return {matchingPointsT, simT};
-    });
-  }
+    _computeProjection(modelViewProjectionTransformT, inputImageT, targetIndex) {
+        const markerWidth = this.trackingKeyframeList[targetIndex].width;
+        const markerHeight = this.trackingKeyframeList[targetIndex].height;
+        const markerScale = this.trackingKeyframeList[targetIndex].scale;
+        const kernelKey = markerWidth + "-" + markerHeight + "-" + markerScale;
 
-  _computeProjection(modelViewProjectionTransformT, inputImageT, targetIndex) {
-    const markerWidth = this.trackingKeyframeList[targetIndex].width;
-    const markerHeight = this.trackingKeyframeList[targetIndex].height;
-    const markerScale = this.trackingKeyframeList[targetIndex].scale;
-    const kernelKey = markerWidth + "-" + markerHeight + "-" + markerScale;
+        if (!this.kernelCaches.computeProjection) {
+            this.kernelCaches.computeProjection = {};
+        }
 
-    if (!this.kernelCaches.computeProjection) {
-      this.kernelCaches.computeProjection = {};
-    }
-
-    if (!this.kernelCaches.computeProjection[kernelKey]) {
-      const kernel = {
-	variableNames: ['M', 'pixel'],
-	outputShape: [markerHeight, markerWidth],
-	userCode: `
+        if (!this.kernelCaches.computeProjection[kernelKey]) {
+            const kernel = {
+                variableNames: ['M', 'pixel'],
+                outputShape: [markerHeight, markerWidth],
+                userCode: `
 	  void main() {
 	      ivec2 coords = getOutputCoords();
 
@@ -313,62 +290,62 @@ class Tracker {
 	      setOutput(getPixel(int(uy), int(ux)));
 	    }
 	`
-      };
+            };
 
-      this.kernelCaches.computeProjection[kernelKey] = kernel;
+            this.kernelCaches.computeProjection[kernelKey] = kernel;
+        }
+
+        return tf.tidy(() => {
+            const program = this.kernelCaches.computeProjection[kernelKey];
+            const result = this._compileAndRun(program, [modelViewProjectionTransformT, inputImageT]);
+            return result;
+        });
     }
 
-    return tf.tidy(() => {
-      const program = this.kernelCaches.computeProjection[kernelKey];
-      const result = this._compileAndRun(program, [modelViewProjectionTransformT, inputImageT]);
-      return result;
-    });
-  }
-  
-  _buildAdjustedModelViewTransform(modelViewProjectionTransform) {
-    return tf.tidy(() => {
-      let modelViewProjectionTransformAdjusted = [];
-      for (let i = 0; i < modelViewProjectionTransform.length; i++) {
-	modelViewProjectionTransformAdjusted.push([]);
-	for (let j = 0; j < modelViewProjectionTransform[i].length; j++) {
-	  modelViewProjectionTransformAdjusted[i].push(modelViewProjectionTransform[i][j] / PRECISION_ADJUST);
-	}
-      }
-      const t = tf.tensor(modelViewProjectionTransformAdjusted, [3, 4]);
-      return t;
-    });
-  }
+    _buildAdjustedModelViewTransform(modelViewProjectionTransform) {
+        return tf.tidy(() => {
+            let modelViewProjectionTransformAdjusted = [];
+            for (let i = 0; i < modelViewProjectionTransform.length; i++) {
+                modelViewProjectionTransformAdjusted.push([]);
+                for (let j = 0; j < modelViewProjectionTransform[i].length; j++) {
+                    modelViewProjectionTransformAdjusted[i].push(modelViewProjectionTransform[i][j] / PRECISION_ADJUST);
+                }
+            }
+            const t = tf.tensor(modelViewProjectionTransformAdjusted, [3, 4]);
+            return t;
+        });
+    }
 
-  _prebuild(trackingFrame, maxCount) {
-    return tf.tidy(() => {
-      const scale = trackingFrame.scale;
+    _prebuild(trackingFrame, maxCount) {
+        return tf.tidy(() => {
+            const scale = trackingFrame.scale;
 
-      const p = [];
-      for (let k = 0; k < maxCount; k++) {
-	if (k < trackingFrame.points.length) {
-	  p.push([trackingFrame.points[k].x / scale, trackingFrame.points[k].y / scale]);
-	} else {
-	  p.push([-1, -1]);
-	}
-      }
-      const imagePixels = tf.tensor(trackingFrame.data, [trackingFrame.width * trackingFrame.height]);
-      const imageProperties = tf.tensor([trackingFrame.width, trackingFrame.height, trackingFrame.scale], [3]);
-      const featurePoints = tf.tensor(p, [p.length, 2], 'float32');
+            const p = [];
+            for (let k = 0; k < maxCount; k++) {
+                if (k < trackingFrame.points.length) {
+                    p.push([trackingFrame.points[k].x / scale, trackingFrame.points[k].y / scale]);
+                } else {
+                    p.push([-1, -1]);
+                }
+            }
+            const imagePixels = tf.tensor(trackingFrame.data, [trackingFrame.width * trackingFrame.height]);
+            const imageProperties = tf.tensor([trackingFrame.width, trackingFrame.height, trackingFrame.scale], [3]);
+            const featurePoints = tf.tensor(p, [p.length, 2], 'float32');
 
-      return {
-	featurePoints,
-	imagePixels,
-	imageProperties
-      }
-    });
-  }
+            return {
+                featurePoints,
+                imagePixels,
+                imageProperties
+            }
+        });
+    }
 
-  _compileAndRun(program, inputs) {
-    const outInfo = tf.backend().compileAndRun(program, inputs);
-    return tf.engine().makeTensorFromDataId(outInfo.dataId, outInfo.shape, outInfo.dtype);
-  }
+    _compileAndRun(program, inputs) {
+        const outInfo = tf.backend().compileAndRun(program, inputs);
+        return tf.engine().makeTensorFromDataId(outInfo.dataId, outInfo.shape, outInfo.dtype);
+    }
 }
 
 export {
-  Tracker
+    Tracker
 };

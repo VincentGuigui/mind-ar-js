@@ -13,10 +13,10 @@ AFRAME.registerSystem('mindar-image-system', {
   tick: function() {
   },
 
-  setup: function({imageTargetSrc, maxTrack, showStats, uiLoading, uiScanning, uiError, missTolerance, warmupTolerance, filterMinCF, filterBeta, frameOnlyDetectionThickness}) {
+  setup: function({imageTargetSrc, maxTrack, showStats, uiLoading, uiScanning, uiError, missTolerance, warmupTolerance, filterMinCF, filterBeta, frameDetection}) {
     this.imageTargetSrc = imageTargetSrc;
     this.maxTrack = maxTrack;
-    this.frameOnlyDetectionThickness = frameOnlyDetectionThickness;
+    this.frameDetection = frameDetection;
     this.filterMinCF = filterMinCF;
     this.filterBeta = filterBeta;
     this.missTolerance = missTolerance;
@@ -104,7 +104,7 @@ AFRAME.registerSystem('mindar-image-system', {
 	}
 	else {
 		navigator.mediaDevices.getUserMedia({audio:!1,video:{facingMode:"environment"}})
-		.then(stream=>this._showCameraStream(stream))
+        .then(stream => this._setCameraStream(stream))
 		.catch(n=>{
 			console.log("getUserMedia error",n),this.el.emit("arError",{error:"VIDEO_FAIL"})
 		})
@@ -154,7 +154,7 @@ AFRAME.registerSystem('mindar-image-system', {
       inputWidth: video.videoWidth,
       inputHeight: video.videoHeight,
       maxTrack: this.maxTrack, 
-      frameOnlyDetectionThickness: this.frameOnlyDetectionThickness,
+      frameDetection: this.frameDetection,
       filterMinCF: this.filterMinCF,
       filterBeta: this.filterBeta,
       missTolerance: this.missTolerance,
@@ -249,10 +249,10 @@ AFRAME.registerComponent('mindar-image', {
   schema: {
     imageTargetSrc: {type: 'string'},
     maxTrack: {type: 'int', default: 1},
-    frameOnlyDetectionThicknessTop: {type: 'number', default: 0},
-    frameOnlyDetectionThicknessRight: {type: 'number', default: 0},
-    frameOnlyDetectionThicknessBottom: {type: 'number', default: 0},
-    frameOnlyDetectionThicknessLeft: {type: 'number', default: 0},
+    frameDetectionTop: {type: 'number', default: 0},
+    frameDetectionRight: {type: 'number', default: 0},
+    frameDetectionBottom: {type: 'number', default: 0},
+    frameDetectionLeft: {type: 'number', default: 0},
     filterMinCF: {type: 'number', default: -1},
     filterBeta: {type: 'number', default: -1},
     missTolerance: {type: 'int', default: -1},
@@ -270,11 +270,11 @@ AFRAME.registerComponent('mindar-image', {
     arSystem.setup({
       imageTargetSrc: this.data.imageTargetSrc, 
       maxTrack: this.data.maxTrack,
-      frameOnlyDetectionThickness: {
-        top: this.data.frameOnlyDetectionThicknessTop,
-        right: this.data.frameOnlyDetectionThicknessRight,
-        bottom: this.data.frameOnlyDetectionThicknessBottom,
-        left: this.data.frameOnlyDetectionThicknessLeft
+      frameDetection: {
+        top: this.data.frameDetectionTop,
+        right: this.data.frameDetectionRight,
+        bottom: this.data.frameDetectionBottom,
+        left: this.data.frameDetectionLeft
       },
       filterMinCF: this.data.filterMinCF === -1? null: this.data.filterMinCF,
       filterBeta: this.data.filterBeta === -1? null: this.data.filterBeta,

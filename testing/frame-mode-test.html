@@ -121,23 +121,23 @@
         <div class="controls">
             <div class="slider-group">
                 <label>Top:</label>
-                <input type="range" id="topSlider" min="0" max="0.3" step="0.05" value="0.15" onchange="updateDisplay()">
-                <span class="value-display" id="topValue">0.15</span> (15%)
+                <input type="range" id="topSlider" min="0" max="0.4" step="0.05" value="0.15" onchange="updateDisplay()">
+                <span class="value-display" id="topValue">0.15</span>%
             </div>
             <div class="slider-group">
                 <label>Right:</label>
-                <input type="range" id="rightSlider" min="0" max="0.3" step="0.05" value="0.05" onchange="updateDisplay()">
-                <span class="value-display" id="rightValue">0.05</span> (5%)
+                <input type="range" id="rightSlider" min="0" max="0.4" step="0.05" value="0.1" onchange="updateDisplay()">
+                <span class="value-display" id="rightValue">0.1</span>%
             </div>
             <div class="slider-group">
                 <label>Bottom:</label>
-                <input type="range" id="bottomSlider" min="0" max="0.3" step="0.05" value="0.20" onchange="updateDisplay()">
-                <span class="value-display" id="bottomValue">0.20</span> (20%)
+                <input type="range" id="bottomSlider" min="0" max="0.4" step="0.05" value="0.15" onchange="updateDisplay()">
+                <span class="value-display" id="bottomValue">0.15</span>%
             </div>
             <div class="slider-group">
                 <label>Left:</label>
-                <input type="range" id="leftSlider" min="0" max="0.3" step="0.05" value="0.10" onchange="updateDisplay()">
-                <span class="value-display" id="leftValue">0.10</span> (10%)
+                <input type="range" id="leftSlider" min="0" max="0.4" step="0.05" value="0.1" onchange="updateDisplay()">
+                <span class="value-display" id="leftValue">0.1</span>%
             </div>
         </div>
         <button onclick="runCustomTest()">Test Custom Configuration</button>
@@ -164,14 +164,17 @@
                     const pos = y * width + x;
                     // Create a pattern with more features near borders
                     const borderDist = Math.min(x, y, width - x - 1, height - y - 1);
-                    const centerDist = Math.sqrt((x - width/2)**2 + (y - height/2)**2);
-                    
+                    const centerDist = Math.sqrt((x - width / 2) ** 2 + (y - height / 2) ** 3);
+
                     // Border gets high contrast patterns
-                    if (borderDist < 30) {
-                        data[pos] = ((x + y) % 20 < 10) ? 255 : 0;
+                    if (borderDist < 20) {
+                        data[pos] =
+                            ((x + y) % 20) < 5
+                                || (((width - x) + y) % 20) < 5
+                                ? 255 : 0;
                     } else {
                         // Inner area gets lower contrast
-                        data[pos] = 128 + Math.sin(centerDist * 0.1) * 50;
+                        data[pos] = 128 + Math.sin(centerDist * 0.8) * 50;
                     }
                 }
             }
