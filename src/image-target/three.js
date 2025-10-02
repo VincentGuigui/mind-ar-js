@@ -14,7 +14,7 @@ export class MindARThree {
   constructor({
     container, imageTargetSrc, maxTrack, uiLoading = "yes", uiScanning = "yes", uiError = "yes",
     filterMinCF = null, filterBeta = null, warmupTolerance = null, missTolerance = null,
-    userDeviceId = null, environmentDeviceId = null, frameOnlyDetectionThickness = 0.0
+    userDeviceId = null, environmentDeviceId = null, frameOnlyDetectionThickness = {top: 0, right: 0, bottom: 0, left: 0}
   }) {
     this.container = container;
     this.imageTargetSrc = imageTargetSrc;

@@ -3,7 +3,7 @@ import {Detector} from './detector.js';
 import {buildModelViewProjectionTransform, computeScreenCoordiate} from '../estimation/utils.js';
 
 class CropDetector {
-  constructor(width, height, debugMode=false, frameOnlyDetectionThickness=0.0) {
+  constructor(width, height, debugMode=false, frameOnlyDetectionThickness={top: 0, right: 0, bottom: 0, left: 0}) {
     this.debugMode = debugMode;
     this.width = width;
     this.height = height;

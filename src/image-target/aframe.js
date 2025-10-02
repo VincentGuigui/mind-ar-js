@@ -249,7 +249,10 @@ AFRAME.registerComponent('mindar-image', {
   schema: {
     imageTargetSrc: {type: 'string'},
     maxTrack: {type: 'int', default: 1},
-    frameOnlyDetectionThickness: {type: 'number', default: 0.0},
+    frameOnlyDetectionThicknessTop: {type: 'number', default: 0},
+    frameOnlyDetectionThicknessRight: {type: 'number', default: 0},
+    frameOnlyDetectionThicknessBottom: {type: 'number', default: 0},
+    frameOnlyDetectionThicknessLeft: {type: 'number', default: 0},
     filterMinCF: {type: 'number', default: -1},
     filterBeta: {type: 'number', default: -1},
     missTolerance: {type: 'int', default: -1},
@@ -267,7 +270,12 @@ AFRAME.registerComponent('mindar-image', {
     arSystem.setup({
       imageTargetSrc: this.data.imageTargetSrc, 
       maxTrack: this.data.maxTrack,
-      frameOnlyDetectionThickness: this.data.frameOnlyDetectionThickness,
+      frameOnlyDetectionThickness: {
+        top: this.data.frameOnlyDetectionThicknessTop,
+        right: this.data.frameOnlyDetectionThicknessRight,
+        bottom: this.data.frameOnlyDetectionThicknessBottom,
+        left: this.data.frameOnlyDetectionThicknessLeft
+      },
       filterMinCF: this.data.filterMinCF === -1? null: this.data.filterMinCF,
       filterBeta: this.data.filterBeta === -1? null: this.data.filterBeta,
       missTolerance: this.data.missTolerance === -1? null: this.data.missTolerance,

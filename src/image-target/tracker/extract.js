@@ -18,15 +18,18 @@ const OCCUPANCY_SIZE = 24 * 2 / 3;
  * Check if a point (x, y) is within the frame border area
  */
 const isInFrameArea = (x, y, width, height, frameOnlyDetectionThickness) => {
-    if (frameOnlyDetectionThickness == 0) return true;
+    if (frameOnlyDetectionThickness.top === 0 && frameOnlyDetectionThickness.right === 0 && 
+        frameOnlyDetectionThickness.bottom === 0 && frameOnlyDetectionThickness.left === 0) return true;
 
-    const frameWidthPixels = Math.floor(width * frameOnlyDetectionThickness);
-    const frameHeightPixels = Math.floor(height * frameOnlyDetectionThickness);
+    const topPixels = Math.floor(height * frameOnlyDetectionThickness.top);
+    const bottomPixels = Math.floor(height * frameOnlyDetectionThickness.bottom);
+    const leftPixels = Math.floor(width * frameOnlyDetectionThickness.left);
+    const rightPixels = Math.floor(width * frameOnlyDetectionThickness.right);
 
     // Check if point is in outer border but not in inner area
     const inOuterArea = x >= 0 && x < width && y >= 0 && y < height;
-    const inInnerArea = x >= frameWidthPixels && x < width - frameWidthPixels &&
-        y >= frameHeightPixels && y < height - frameHeightPixels;
+    const inInnerArea = x >= leftPixels && x < width - rightPixels &&
+        y >= topPixels && y < height - bottomPixels;
 
     return inOuterArea && !inInnerArea;
 };
@@ -38,9 +41,9 @@ const isInFrameArea = (x, y, width, height, frameOnlyDetectionThickness) => {
  * @param {Uint8Array} options.imageData
  * @param {int} options.width image width
  * @param {int} options.height image height
- * @param {number} frameOnlyDetectionThickness - percentage of width/height for frame thickness
+ * @param {object} frameOnlyDetectionThickness - {top, right, bottom, left} - percentage of height (top/bottom) or width (left/right)
  */
-const extract = (image, frameOnlyDetectionThickness = 0) => {
+const extract = (image, frameOnlyDetectionThickness = {top: 0, right: 0, bottom: 0, left: 0}) => {
   const {data: imageData, width, height, scale} = image;
 
   // Step 1 - filter out interesting points. Interesting points have strong pixel value changed across neighbours

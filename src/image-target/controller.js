@@ -16,7 +16,7 @@ const DEFAULT_MISS_TOLERANCE = 5;
 class Controller {
   constructor({inputWidth, inputHeight, onUpdate=null, debugMode=false, maxTrack=1, 
     warmupTolerance=null, missTolerance=null, filterMinCF=null, filterBeta=null,
-    frameOnlyDetectionThickness=0.0}) {
+    frameOnlyDetectionThickness={top: 0, right: 0, bottom: 0, left: 0}}) {
 
     this.inputWidth = inputWidth;
     this.inputHeight = inputHeight;

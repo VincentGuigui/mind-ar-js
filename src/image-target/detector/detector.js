@@ -26,11 +26,12 @@ const FREAK_EXPANSION_FACTOR = 7.0;
 const FREAK_CONPARISON_COUNT = (FREAKPOINTS.length - 1) * (FREAKPOINTS.length) / 2; // 666
 
 class Detector {
-	constructor(width, height, debugMode = false, frameOnlyDetectionThickness = 0.0) {
+	constructor(width, height, debugMode = false, frameOnlyDetectionThickness = {top: 0, right: 0, bottom: 0, left: 0}) {
 		this.debugMode = debugMode;
 		this.width = width;
 		this.height = height;
-		this.frameOnlyDetectionThickness = frameOnlyDetectionThickness; // percentage of width/height
+		// frameOnlyDetectionThickness: {top, right, bottom, left} - percentage of height (top/bottom) or width (left/right)
+		this.frameOnlyDetectionThickness = frameOnlyDetectionThickness;
 		let numOctaves = 0;
 		while (width >= PYRAMID_MIN_SIZE && height >= PYRAMID_MIN_SIZE) {
 			width /= 2;
@@ -53,15 +54,18 @@ class Detector {
 	 * @returns {boolean} true if point is in frame border area
 	 */
 	_isInFrameArea(x, y, width, height) {
-		if (this.frameOnlyDetectionThickness == 0) return true;
+		const thickness = this.frameOnlyDetectionThickness;
+		if (thickness.top === 0 && thickness.right === 0 && thickness.bottom === 0 && thickness.left === 0) return true;
 		
-		const frameWidthPixels = Math.floor(width * this.frameOnlyDetectionThickness);
-		const frameHeightPixels = Math.floor(height * this.frameOnlyDetectionThickness);
+		const topPixels = Math.floor(height * thickness.top);
+		const bottomPixels = Math.floor(height * thickness.bottom);
+		const leftPixels = Math.floor(width * thickness.left);
+		const rightPixels = Math.floor(width * thickness.right);
 		
 		// Check if point is in outer border but not in inner area
 		const inOuterArea = x >= 0 && x < width && y >= 0 && y < height;
-		const inInnerArea = x >= frameWidthPixels && x < width - frameWidthPixels && 
-		                   y >= frameHeightPixels && y < height - frameHeightPixels;
+		const inInnerArea = x >= leftPixels && x < width - rightPixels && 
+		                   y >= topPixels && y < height - bottomPixels;
 		
 		return inOuterArea && !inInnerArea;
 	}

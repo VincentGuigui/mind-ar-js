@@ -2,7 +2,7 @@
 <html>
 <head>
     <meta charset="utf-8">
-    <title>Frame Mode Test</title>
+    <title>Frame Mode Test - 4 Separate Values</title>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -29,6 +29,7 @@
             margin: 10px 0;
             border-radius: 3px;
             white-space: pre-wrap;
+            font-size: 12px;
         }
         button {
             background: #007bff;
@@ -55,21 +56,41 @@
             border-left: 4px solid #2196f3;
             margin: 20px 0;
         }
+        .controls {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 10px 0;
+        }
+        .slider-group {
+            margin: 10px 0;
+        }
+        label {
+            display: inline-block;
+            width: 80px;
+            font-weight: bold;
+        }
+        input[type="range"] {
+            width: 200px;
+        }
+        .value-display {
+            display: inline-block;
+            width: 50px;
+            text-align: right;
+        }
     </style>
 </head>
 <body>
-    <h1>Frame-Only Feature Detection Test</h1>
+    <h1>Frame-Only Feature Detection Test - 4 Separate Values</h1>
     
     <div class="info">
-        <strong>What this test demonstrates:</strong><br>
-        This test shows the difference between normal feature detection (which extracts features from the entire image) 
-        and frame-only mode (which only extracts features from the border area of the image).
-        <br><br>
-        <strong>How to use:</strong><br>
-        1. Create a test image or use an existing one<br>
-        2. Run feature extraction with normal mode<br>
-        3. Run feature extraction with frame-only mode<br>
-        4. Compare the extracted feature points
+        <strong>What's New:</strong><br>
+        The frame thickness can now be specified separately for each side (top, right, bottom, left) as percentages of image dimensions:
+        <ul>
+            <li><strong>top/bottom</strong>: percentage of image height</li>
+            <li><strong>left/right</strong>: percentage of image width</li>
+        </ul>
+        This allows for asymmetric frame detection, perfect for cards with borders of different widths.
     </div>
 
     <div class="container">
@@ -84,27 +105,46 @@
         </div>
 
         <div class="test-section">
-            <h2>Frame-Only Mode</h2>
-            <p>Features extracted only from border area (10% thickness)</p>
+            <h2>Frame-Only Mode (Uniform)</h2>
+            <p>Features extracted with same thickness on all sides (10%)</p>
             <div class="canvas-container">
                 <canvas id="frameCanvas" width="400" height="300"></canvas>
             </div>
-            <button onclick="runFrameTest()">Run Frame Mode Test</button>
+            <button onclick="runFrameTest()">Run Uniform Frame Test</button>
             <div class="result" id="frameResult">Click button to run test</div>
         </div>
     </div>
 
     <div class="test-section">
-        <h2>Configuration Test</h2>
-        <p>Test different frame thickness values</p>
-        <div class="canvas-container">
-            <canvas id="frameCanvasTest" width="400" height="300"></canvas>
+        <h2>Custom Frame Configuration</h2>
+        <p>Adjust each side independently:</p>
+        <div class="controls">
+            <div class="slider-group">
+                <label>Top:</label>
+                <input type="range" id="topSlider" min="0" max="0.3" step="0.05" value="0.15" onchange="updateDisplay()">
+                <span class="value-display" id="topValue">0.15</span> (15%)
+            </div>
+            <div class="slider-group">
+                <label>Right:</label>
+                <input type="range" id="rightSlider" min="0" max="0.3" step="0.05" value="0.05" onchange="updateDisplay()">
+                <span class="value-display" id="rightValue">0.05</span> (5%)
+            </div>
+            <div class="slider-group">
+                <label>Bottom:</label>
+                <input type="range" id="bottomSlider" min="0" max="0.3" step="0.05" value="0.20" onchange="updateDisplay()">
+                <span class="value-display" id="bottomValue">0.20</span> (20%)
+            </div>
+            <div class="slider-group">
+                <label>Left:</label>
+                <input type="range" id="leftSlider" min="0" max="0.3" step="0.05" value="0.10" onchange="updateDisplay()">
+                <span class="value-display" id="leftValue">0.10</span> (10%)
+            </div>
         </div>
-        <label>Frame Thickness: <input type="range" id="thicknessSlider" min="0.00" max="0.3" step="0.05" value="0.1" onchange="updateThickness()"></label>
-        <span id="thicknessValue">0.1</span>
-        <br><br>
-        <button onclick="runThicknessTest()">Test Current Thickness</button>
-        <div class="result" id="thicknessResult">Adjust thickness and click test</div>
+        <button onclick="runCustomTest()">Test Custom Configuration</button>
+        <div class="canvas-container">
+            <canvas id="customCanvas" width="400" height="300"></canvas>
+        </div>
+        <div class="result" id="customResult">Adjust sliders and click test</div>
     </div>
 
     <script type="module">
@@ -124,17 +164,14 @@
                     const pos = y * width + x;
                     // Create a pattern with more features near borders
                     const borderDist = Math.min(x, y, width - x - 1, height - y - 1);
-                    const centerDist = Math.sqrt((x - width/2)**2 + (y - height/2)**3);
+                    const centerDist = Math.sqrt((x - width/2)**2 + (y - height/2)**2);
                     
                     // Border gets high contrast patterns
-                    if (borderDist < 20) {
-                        data[pos] =
-                            ((x + y) % 20) < 5
-                            || (((width - x) + y) % 20) < 5
-                            ? 255 : 0;
+                    if (borderDist < 30) {
+                        data[pos] = ((x + y) % 20 < 10) ? 255 : 0;
                     } else {
                         // Inner area gets lower contrast
-                        data[pos] = 128 + Math.sin(centerDist * 0.8) * 50;
+                        data[pos] = 128 + Math.sin(centerDist * 0.1) * 50;
                     }
                 }
             }
@@ -182,8 +219,8 @@
             });
             
             // Draw title
-            ctx.fillStyle = 'green';
-            ctx.font = 'bold 14px Arial';
+            ctx.fillStyle = 'blue';
+            ctx.font = '14px Arial';
             ctx.fillText(title, 10, 20);
         }
 
@@ -199,14 +236,14 @@
                 scale: 1
             };
             
-            const features = extract(image, 0); // Normal mode
+            const features = extract(image, {top: 0, right: 0, bottom: 0, left: 0});
             
             drawImageWithFeatures('normalCanvas', imageData, width, height, features, `Normal Mode: ${features.length} features`);
             
             document.getElementById('normalResult').textContent = 
                 `Extracted ${features.length} features from entire image\n` +
-                `Features distributed across full image area\n` +
-                `First 5 features: ${features.slice(0, 5).map(p => `(${p.x.toFixed(1)}, ${p.y.toFixed(1)})`).join(', ')}`;
+                `All sides: 0% (full image coverage)\n` +
+                `First 5 features: ${features.slice(0, 5).map(p => `(${p.x.toFixed(0)}, ${p.y.toFixed(0)})`).join(', ')}`;
         };
 
         window.runFrameTest = function() {
@@ -221,28 +258,30 @@
                 scale: 1
             };
             
-            const features = extract(image, 0.1); // Frame mode with 10% thickness
+            const features = extract(image, {top: 0.1, right: 0.1, bottom: 0.1, left: 0.1});
             
-            drawImageWithFeatures('frameCanvas', imageData, width, height, features, `Frame Mode: ${features.length} features`);
-            
-            const frameThickness = 0.1;
-            const frameWidthPixels = Math.floor(width * frameThickness);
-            const frameHeightPixels = Math.floor(height * frameThickness);
+            drawImageWithFeatures('frameCanvas', imageData, width, height, features, `Uniform Frame: ${features.length} features`);
             
             document.getElementById('frameResult').textContent = 
-                `Extracted ${features.length} features from frame area only\n` +
-                `Frame thickness: ${frameThickness * 100}% = ${frameWidthPixels}px horizontal, ${frameHeightPixels}px vertical\n` +
-                `Features only from border region\n` +
-                `First 5 features: ${features.slice(0, 5).map(p => `(${p.x.toFixed(1)}, ${p.y.toFixed(1)})`).join(', ')}`;
+                `Extracted ${features.length} features from uniform frame\n` +
+                `All sides: 10%\n` +
+                `Top/Bottom: ${Math.floor(height * 0.1)}px, Left/Right: ${Math.floor(width * 0.1)}px\n` +
+                `First 5 features: ${features.slice(0, 5).map(p => `(${p.x.toFixed(0)}, ${p.y.toFixed(0)})`).join(', ')}`;
         };
 
-        window.updateThickness = function() {
-            const value = document.getElementById('thicknessSlider').value;
-            document.getElementById('thicknessValue').textContent = value;
+        window.updateDisplay = function() {
+            document.getElementById('topValue').textContent = document.getElementById('topSlider').value;
+            document.getElementById('rightValue').textContent = document.getElementById('rightSlider').value;
+            document.getElementById('bottomValue').textContent = document.getElementById('bottomSlider').value;
+            document.getElementById('leftValue').textContent = document.getElementById('leftSlider').value;
         };
 
-        window.runThicknessTest = function() {
-            const thickness = parseFloat(document.getElementById('thicknessSlider').value);
+        window.runCustomTest = function() {
+            const top = parseFloat(document.getElementById('topSlider').value);
+            const right = parseFloat(document.getElementById('rightSlider').value);
+            const bottom = parseFloat(document.getElementById('bottomSlider').value);
+            const left = parseFloat(document.getElementById('leftSlider').value);
+            
             const width = 200;
             const height = 150;
             const imageData = createTestImageData(width, height);
@@ -254,23 +293,28 @@
                 scale: 1
             };
             
-            const features = extract(image, thickness);
+            const features = extract(image, {top, right, bottom, left});
             
-            drawImageWithFeatures('frameCanvasTest', imageData, width, height, features, `Frame Mode: ${features.length} features`);
-
-            const frameWidthPixels = Math.floor(width * thickness);
-            const frameHeightPixels = Math.floor(height * thickness);
+            drawImageWithFeatures('customCanvas', imageData, width, height, features, `Custom Frame: ${features.length} features`);
             
-            document.getElementById('thicknessResult').textContent = 
-                `Thickness: ${thickness * 100}% = ${frameWidthPixels}px × ${frameHeightPixels}px frame\n` +
-                `Extracted ${features.length} features\n` +
-                `Inner area excluded: ${width - 2*frameWidthPixels} × ${height - 2*frameHeightPixels} pixels`;
+            const topPx = Math.floor(height * top);
+            const bottomPx = Math.floor(height * bottom);
+            const leftPx = Math.floor(width * left);
+            const rightPx = Math.floor(width * right);
+            
+            document.getElementById('customResult').textContent = 
+                `Extracted ${features.length} features from custom frame\n` +
+                `Top: ${(top * 100).toFixed(0)}% (${topPx}px), Right: ${(right * 100).toFixed(0)}% (${rightPx}px)\n` +
+                `Bottom: ${(bottom * 100).toFixed(0)}% (${bottomPx}px), Left: ${(left * 100).toFixed(0)}% (${leftPx}px)\n` +
+                `Inner area excluded: ${width - leftPx - rightPx} × ${height - topPx - bottomPx} pixels\n` +
+                `First 5 features: ${features.slice(0, 5).map(p => `(${p.x.toFixed(0)}, ${p.y.toFixed(0)})`).join(', ')}`;
         };
 
         // Run initial tests
         setTimeout(() => {
             runNormalTest();
             runFrameTest();
+            runCustomTest();
         }, 100);
     </script>
 </body>
