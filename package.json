@@ -1,6 +1,6 @@
 {
   "name": "mind-ar",
-  "version": "1.2.5",
+  "version": "1.2.7",
   "description": "web augmented reality framework",
   "main": "index.js",
   "scripts": {
@@ -47,6 +47,6 @@
     "src/"
   ],
   "devDependencies": {
-    "vite": "^5.0.11"
+    "vite": "^5.4.20"
   }
 }
