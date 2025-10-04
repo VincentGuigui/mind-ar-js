@@ -84,12 +84,19 @@ class Tracker {
         const goodTrack = [];
 
         for (let i = 0; i < matchingPoints.length; i++) {
+            const [x, y] = matchingPoints[i];
+            const pixelX = x * trackingFrame.scale;
+            const pixelY = y * trackingFrame.scale;
             if (sim[i] > AR2_SIM_THRESH && i < trackingFrame.points.length
-                && isInFrameArea(x, y, keyframeWidth, keyframeHeight, this.frameDetection)) {
+                && isInFrameArea(pixelX, pixelY, keyframeWidth, keyframeHeight, this.frameDetection)) {
                 goodTrack.push(i);
-                const point = computeScreenCoordinate(modelViewProjectionTransform, matchingPoints[i][0], matchingPoints[i][1]);
+                const point = computeScreenCoordinate(modelViewProjectionTransform, x, y);
                 screenCoords.push(point);
-                worldCoords.push({ x: trackingFrame.points[i].x / trackingFrame.scale, y: trackingFrame.points[i].y / trackingFrame.scale, z: 0 });
+                worldCoords.push({
+                    x: trackingFrame.points[i].x / trackingFrame.scale,
+                    y: trackingFrame.points[i].y / trackingFrame.scale,
+                    z: 0
+                });
             }
         }
 

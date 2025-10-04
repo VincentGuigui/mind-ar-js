@@ -4,5 +4,4 @@ tests
 dist-dev
 dist/
 *.DS_Store
-Web.config
-.vs/
+/.vs

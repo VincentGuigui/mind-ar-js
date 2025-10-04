@@ -16,6 +16,7 @@ const moduleConfig={
         outDir: outDir,
         emptyOutDir:false,
         sourcemap:'inline' ,
+        minify: false,
         lib: {
             fileName:"[name]",
             entry:'index.js',

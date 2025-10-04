@@ -172,7 +172,7 @@ const Main = () => {
   useEffect(() => {
     const process = async () => {
       //const queryImage = await utils.loadImage('../tests/video2/out11.png');
-      const queryImage = await utils.loadImage('../tests/videos/c1/out015.png');
+      const queryImage = await utils.loadImage('../testing/videos/c1/out015.png');
       //const queryImage = await utils.loadImage('../tests/card-parallel.png');
 
       const inputWidth = queryImage.width;
