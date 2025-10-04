@@ -26,7 +26,7 @@
     "tensorflowjs",
     "mediapipe"
   ],
-  "author": "hiukim",
+  "author": "vincentguigui / hiukim",
   "license": "MIT",
   "dependencies": {
     "@mediapipe/tasks-vision": "^0.10.9",
