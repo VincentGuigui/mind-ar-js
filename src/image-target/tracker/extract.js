@@ -15,16 +15,88 @@ const MIN_THRESH = 0.2;
 const SD_THRESH = 8.0;
 const OCCUPANCY_SIZE = 24 * 2 / 3;
 
+// Detection mode constants
+const DETECTION_MODES = {
+  CORNER: 'corner',
+  COLOR: 'color',
+  LINES: 'lines'
+};
+
+// Default detection options
+const DEFAULT_DETECTION_OPTIONS = {
+  modes: [DETECTION_MODES.CORNER], // Default to existing corner detection
+  cornerOptions: {
+    // Existing corner detection parameters (already in constants above)
+  },
+  colorOptions: {
+    numClusters: 5,           // Number of color clusters to detect
+    minRegionSize: 50,        // Minimum region size in pixels
+    colorThreshold: 30        // Color similarity threshold (0-255)
+  },
+  linesOptions: {
+    edgeThreshold: 50,        // Threshold for edge detection
+    houghThreshold: 50,       // Hough transform threshold
+    minLineLength: 30,        // Minimum line length
+    maxLineGap: 10            // Maximum gap between line segments
+  }
+};
+
 /*
  * Input image is in grey format. the imageData array size is width * height. value range from 0-255
  * pixel value at row r and c = imageData[r * width + c]
  *
- * @param {Uint8Array} options.imageData
- * @param {int} options.width image width
- * @param {int} options.height image height
+ * @param {object} image - Image object with {data, width, height, scale}
  * @param {object} frameDetection - {top, right, bottom, left} - percentage of height (top/bottom) or width (left/right)
+ * @param {object} detectionOptions - Detection options with modes and mode-specific parameters
+ * @returns {Array} Array of detected features {x, y, type, ...modeSpecificData}
  */
-const extract = (image, frameDetection = {top: 0, right: 0, bottom: 0, left: 0}) => {
+const extract = (image, frameDetection = {top: 0, right: 0, bottom: 0, left: 0}, detectionOptions = DEFAULT_DETECTION_OPTIONS) => {
+  const {data: imageData, width, height, scale} = image;
+  
+  // Merge with default options
+  const options = {
+    ...DEFAULT_DETECTION_OPTIONS,
+    ...detectionOptions,
+    cornerOptions: {...DEFAULT_DETECTION_OPTIONS.cornerOptions, ...(detectionOptions.cornerOptions || {})},
+    colorOptions: {...DEFAULT_DETECTION_OPTIONS.colorOptions, ...(detectionOptions.colorOptions || {})},
+    linesOptions: {...DEFAULT_DETECTION_OPTIONS.linesOptions, ...(detectionOptions.linesOptions || {})}
+  };
+  
+  // Ensure modes is an array
+  const modes = Array.isArray(options.modes) ? options.modes : [options.modes];
+  
+  let allFeatures = [];
+  
+  // Run each enabled detection mode
+  for (const mode of modes) {
+    let features = [];
+    
+    switch(mode) {
+      case DETECTION_MODES.CORNER:
+        features = _extractCornerFeatures(image, frameDetection, options.cornerOptions);
+        break;
+      case DETECTION_MODES.COLOR:
+        features = _extractColorFeatures(image, frameDetection, options.colorOptions);
+        break;
+      case DETECTION_MODES.LINES:
+        features = _extractLineFeatures(image, frameDetection, options.linesOptions);
+        break;
+      default:
+        console.warn(`Unknown detection mode: ${mode}`);
+    }
+    
+    // Add type to each feature
+    features.forEach(f => f.type = mode);
+    allFeatures = allFeatures.concat(features);
+  }
+  
+  return allFeatures;
+}
+
+/**
+ * Extract corner features using gradient-based method (original implementation)
+ */
+const _extractCornerFeatures = (image, frameDetection, cornerOptions) => {
   const {data: imageData, width, height, scale} = image;
 
   // Step 1 - filter out interesting points. Interesting points have strong pixel value changed across neighbours
@@ -173,6 +245,202 @@ const extract = (image, frameDetection = {top: 0, right: 0, bottom: 0, left: 0})
   const coords = _selectFeature({image, featureMap, templateSize: TEMPLATE_SIZE, searchSize: SEARCH_SIZE2, occSize: OCCUPANCY_SIZE, maxSimThresh: MAX_THRESH, minSimThresh: MIN_THRESH, sdThresh: SD_THRESH, imageDataCumsum, imageDataSqrCumsum, frameDetection});
 
   return coords;
+}
+
+/**
+ * Extract color features using color clustering
+ */
+const _extractColorFeatures = (image, frameDetection, colorOptions) => {
+  const {data: imageData, width, height} = image;
+  const {numClusters, minRegionSize, colorThreshold} = colorOptions;
+  
+  const features = [];
+  
+  // Simple color clustering based on intensity
+  // Group pixels by intensity ranges
+  const clusters = new Array(numClusters).fill(0).map(() => ({
+    pixels: [],
+    centerIntensity: 0
+  }));
+  
+  // Initialize cluster centers evenly across intensity range
+  for (let i = 0; i < numClusters; i++) {
+    clusters[i].centerIntensity = (i + 0.5) * (255 / numClusters);
+  }
+  
+  // Assign pixels to nearest cluster
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      // Skip if not in frame area
+      if (!isInFrameArea(x, y, width, height, frameDetection)) {
+        continue;
+      }
+      
+      const pos = y * width + x;
+      const intensity = imageData[pos];
+      
+      // Find nearest cluster
+      let minDist = Infinity;
+      let clusterIdx = 0;
+      for (let i = 0; i < numClusters; i++) {
+        const dist = Math.abs(intensity - clusters[i].centerIntensity);
+        if (dist < minDist) {
+          minDist = dist;
+          clusterIdx = i;
+        }
+      }
+      
+      if (minDist < colorThreshold) {
+        clusters[clusterIdx].pixels.push({x, y, intensity});
+      }
+    }
+  }
+  
+  // Extract feature points from clusters
+  for (let i = 0; i < numClusters; i++) {
+    const cluster = clusters[i];
+    
+    if (cluster.pixels.length < minRegionSize) {
+      continue;
+    }
+    
+    // Compute centroid of cluster
+    let sumX = 0, sumY = 0;
+    for (const pixel of cluster.pixels) {
+      sumX += pixel.x;
+      sumY += pixel.y;
+    }
+    
+    const cx = Math.round(sumX / cluster.pixels.length);
+    const cy = Math.round(sumY / cluster.pixels.length);
+    
+    features.push({
+      x: cx,
+      y: cy,
+      intensity: cluster.centerIntensity,
+      regionSize: cluster.pixels.length
+    });
+  }
+  
+  return features;
+}
+
+/**
+ * Extract line features using edge detection and Hough transform
+ */
+const _extractLineFeatures = (image, frameDetection, linesOptions) => {
+  const {data: imageData, width, height} = image;
+  const {edgeThreshold, houghThreshold, minLineLength, maxLineGap} = linesOptions;
+  
+  const features = [];
+  
+  // Step 1: Edge detection using gradient magnitude
+  const edges = new Uint8Array(width * height);
+  
+  for (let y = 1; y < height - 1; y++) {
+    for (let x = 1; x < width - 1; x++) {
+      // Skip if not in frame area
+      if (!isInFrameArea(x, y, width, height, frameDetection)) {
+        continue;
+      }
+      
+      const pos = y * width + x;
+      
+      // Sobel operator for edge detection
+      const gx = (
+        -imageData[pos - width - 1] - 2 * imageData[pos - 1] - imageData[pos + width - 1] +
+        imageData[pos - width + 1] + 2 * imageData[pos + 1] + imageData[pos + width + 1]
+      );
+      
+      const gy = (
+        -imageData[pos - width - 1] - 2 * imageData[pos - width] - imageData[pos - width + 1] +
+        imageData[pos + width - 1] + 2 * imageData[pos + width] + imageData[pos + width + 1]
+      );
+      
+      const magnitude = Math.sqrt(gx * gx + gy * gy);
+      
+      edges[pos] = magnitude > edgeThreshold ? 255 : 0;
+    }
+  }
+  
+  // Step 2: Simple Hough transform for line detection
+  // We'll use a simplified approach: detect dominant orientations in edge pixels
+  const maxRho = Math.sqrt(width * width + height * height);
+  const thetaSteps = 180; // 1 degree resolution
+  const rhoSteps = Math.ceil(maxRho);
+  
+  // Hough accumulator
+  const accumulator = new Uint32Array(thetaSteps * rhoSteps);
+  
+  // Vote for lines
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const pos = y * width + x;
+      
+      if (edges[pos] === 0) continue;
+      
+      // Vote for all possible lines through this edge pixel
+      for (let thetaIdx = 0; thetaIdx < thetaSteps; thetaIdx++) {
+        const theta = (thetaIdx * Math.PI) / thetaSteps;
+        const rho = x * Math.cos(theta) + y * Math.sin(theta);
+        const rhoIdx = Math.round(rho + maxRho / 2);
+        
+        if (rhoIdx >= 0 && rhoIdx < rhoSteps) {
+          accumulator[thetaIdx * rhoSteps + rhoIdx]++;
+        }
+      }
+    }
+  }
+  
+  // Find peaks in accumulator (lines)
+  const detectedLines = [];
+  for (let thetaIdx = 0; thetaIdx < thetaSteps; thetaIdx++) {
+    for (let rhoIdx = 0; rhoIdx < rhoSteps; rhoIdx++) {
+      const votes = accumulator[thetaIdx * rhoSteps + rhoIdx];
+      
+      if (votes > houghThreshold) {
+        const theta = (thetaIdx * Math.PI) / thetaSteps;
+        const rho = rhoIdx - maxRho / 2;
+        
+        detectedLines.push({theta, rho, votes});
+      }
+    }
+  }
+  
+  // Convert lines to feature points (sample points along the line)
+  for (const line of detectedLines) {
+    const {theta, rho} = line;
+    
+    // Calculate line endpoints within image bounds
+    const cosTheta = Math.cos(theta);
+    const sinTheta = Math.sin(theta);
+    
+    // Sample a point on the line as feature
+    let x0, y0;
+    
+    if (Math.abs(sinTheta) > 0.5) {
+      // More vertical line
+      x0 = Math.round(width / 2);
+      y0 = Math.round((rho - x0 * cosTheta) / sinTheta);
+    } else {
+      // More horizontal line
+      y0 = Math.round(height / 2);
+      x0 = Math.round((rho - y0 * sinTheta) / cosTheta);
+    }
+    
+    // Validate point is within image
+    if (x0 >= 0 && x0 < width && y0 >= 0 && y0 < height) {
+      features.push({
+        x: x0,
+        y: y0,
+        theta: theta,
+        rho: rho,
+        votes: line.votes
+      });
+    }
+  }
+  
+  return features;
 }
 
 const _selectFeature = (options) => {
@@ -348,5 +616,7 @@ const _getSimilarity = (options) => {
 }
 
 export {
-  extract
+  extract,
+  DETECTION_MODES,
+  DEFAULT_DETECTION_OPTIONS
 };
