@@ -3,18 +3,20 @@
 <head>
     <meta charset="utf-8">
     <title>Three.js Frame-Only Mode Example</title>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r148/three.min.js"></script>
-    <script src="../dist-dev/mindar-image-three.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+    <script type="module" src="./mindar-three.js"></script>
     <style>
         body {
             margin: 0;
             font-family: Arial, sans-serif;
         }
+
         #container {
             position: relative;
             width: 100vw;
             height: 100vh;
         }
+
         #info {
             position: absolute;
             top: 10px;
@@ -26,6 +28,7 @@
             z-index: 100;
             max-width: 300px;
         }
+
         #controls {
             position: absolute;
             top: 10px;
@@ -36,6 +39,7 @@
             border-radius: 8px;
             z-index: 100;
         }
+
         button {
             background: #007bff;
             color: white;
@@ -45,9 +49,11 @@
             cursor: pointer;
             margin: 2px;
         }
-        button:hover {
-            background: #0056b3;
-        }
+
+            button:hover {
+                background: #0056b3;
+            }
+
         .active {
             background: #28a745 !important;
         }
@@ -55,7 +61,7 @@
 </head>
 <body>
     <div id="container"></div>
-    
+
     <div id="info">
         <h3>🎯 Frame-Only Mode Demo</h3>
         <p><strong>Current Mode:</strong> <span id="currentMode">Frame-Only (15%)</span></p>
@@ -85,12 +91,12 @@
             // Initialize MindAR with frame-only mode
             mindarThree = new window.MINDAR.IMAGE.MindARThree({
                 container: document.getElementById('container'),
-                imageTargetSrc: '../examples/image-tracking/assets/targets/card.mind',
+                imageTargetSrc: '../examples/image-tracking/assets/card-example/card.mind',
                 frameThickness: currentThickness,
                 maxTrack: 1
             });
 
-            const {renderer, scene, camera} = mindarThree;
+            const { renderer, scene, camera } = mindarThree;
 
             // Create a simple rotating cube for demo
             const geometry = new THREE.BoxGeometry();
@@ -99,7 +105,7 @@
                 wireframe: true
             });
             cube = new THREE.Mesh(geometry, material);
-            
+
             // Add some animation
             cube.rotation.x = 0.5;
             cube.rotation.y = 0.5;
@@ -108,7 +114,7 @@
             anchor.group.add(cube);
 
             await mindarThree.start();
-            
+
             // Animation loop
             renderer.setAnimationLoop(() => {
                 cube.rotation.y += 0.01;
@@ -144,7 +150,7 @@
             currentThickness = parseFloat(slider.value);
             document.getElementById('thicknessValue').textContent = currentThickness;
             document.getElementById('thicknessDisplay').textContent = (currentThickness * 100).toFixed(0) + '%';
-            
+
             // Restart with new thickness if in frame mode
             if (currentFrameMode && mindarThree) {
                 await mindarThree.stop();
@@ -156,15 +162,17 @@
             const mode = currentFrameMode ? `Frame-Only (${(currentThickness * 100).toFixed(0)}%)` : 'Normal (Full Image)';
             document.getElementById('currentMode').textContent = mode;
             document.getElementById('thicknessDisplay').textContent = (currentThickness * 100).toFixed(0) + '%';
-            
+
             // Update cube color based on mode
             if (cube) {
                 cube.material.color.setHex(currentFrameMode ? 0x00ff00 : 0xff0000);
             }
         }
 
-        // Start the application
-        start();
+        document.addEventListener('DOMContentLoaded', () => {
+            // Start the application
+            start();
+        });
     </script>
 </body>
 </html>
