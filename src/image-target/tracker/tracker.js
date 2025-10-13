@@ -17,10 +17,11 @@ const TRACKING_KEYFRAME = 1; // 0: 256px, 1: 128px
 const PRECISION_ADJUST = 1000;
 
 class Tracker {
-    constructor(markerDimensions, trackingDataList, projectionTransform, inputWidth, inputHeight, debugMode = false, frameDetection = { top: 0, right: 0, bottom: 0, left: 0 }) {
+    constructor(markerDimensions, trackingDataList, projectionTransform, inputWidth, inputHeight, debugMode = false, frameDetection = { top: 0, right: 0, bottom: 0, left: 0 }, simThreshold = AR2_SIM_THRESH) {
         this.markerDimensions = markerDimensions;
         this.trackingDataList = trackingDataList;
         this.projectionTransform = projectionTransform;
+        this.simThreshold = simThreshold == -1 ? AR2_SIM_THRESH : simThreshold;
         this.debugMode = debugMode;
         // frameDetection: {top, right, bottom, left} - percentage of height (top/bottom) or width (left/right)
         this.frameDetection = frameDetection;
@@ -87,7 +88,7 @@ class Tracker {
             const [x, y] = matchingPoints[i];
             const pixelX = x * trackingFrame.scale;
             const pixelY = y * trackingFrame.scale;
-            if (sim[i] > AR2_SIM_THRESH && i < trackingFrame.points.length
+            if (sim[i] > this.simThreshold && i < trackingFrame.points.length
                 && isInFrameArea(pixelX, pixelY, keyframeWidth, keyframeHeight, this.frameDetection)) {
                 goodTrack.push(i);
                 const point = computeScreenCoordinate(modelViewProjectionTransform, x, y);

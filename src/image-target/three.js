@@ -326,5 +326,6 @@ if (!window.MINDAR.IMAGE) {
 }
 
 window.MINDAR.IMAGE.MindARThree = MindARThree;
+window.MINDAR.IMAGE.Controller = Controller;
 //window.MINDAR.IMAGE.THREE = THREE;
 window.MINDAR.IMAGE.tf = tf;

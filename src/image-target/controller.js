@@ -16,12 +16,15 @@ const DEFAULT_MISS_TOLERANCE = 5;
 class Controller {
   constructor({inputWidth, inputHeight, onUpdate=null, debugMode=false, maxTrack=1, 
     warmupTolerance=null, missTolerance=null, filterMinCF=null, filterBeta=null,
-    frameDetection={top: 0, right: 0, bottom: 0, left: 0}}) {
+      frameDetection = { top: 0, right: 0, bottom: 0, left: 0 },
+      simThreshold = -1
+  }) {
 
     this.inputWidth = inputWidth;
     this.inputHeight = inputHeight;
     this.maxTrack = maxTrack;
     this.frameDetection = frameDetection;
+    this.simThreshold = simThreshold;
     this.filterMinCF = filterMinCF === null? DEFAULT_FILTER_CUTOFF: filterMinCF;
     this.filterBeta = filterBeta === null? DEFAULT_FILTER_BETA: filterBeta;
     this.warmupTolerance = warmupTolerance === null? DEFAULT_WARMUP_TOLERANCE: warmupTolerance;
@@ -97,7 +100,8 @@ class Controller {
       dimensions.push([dataList[i].targetImage.width, dataList[i].targetImage.height]);
     }
 
-    this.tracker = new Tracker(dimensions, trackingDataList, this.projectionTransform, this.inputWidth, this.inputHeight, this.debugMode, this.frameDetection);
+      this.tracker = new Tracker(dimensions, trackingDataList, this.projectionTransform, this.inputWidth, this.inputHeight,
+          this.debugMode, this.frameDetection, this.simThreshold);
 
     this.worker.postMessage({
       type: 'setup',

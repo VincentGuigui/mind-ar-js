@@ -13,10 +13,12 @@ AFRAME.registerSystem('mindar-image-system', {
   tick: function() {
   },
 
-  setup: function({imageTargetSrc, maxTrack, showStats, uiLoading, uiScanning, uiError, missTolerance, warmupTolerance, filterMinCF, filterBeta, frameDetection}) {
+    setup: function ({ imageTargetSrc, maxTrack, showStats, uiLoading, uiScanning, uiError,
+        missTolerance, warmupTolerance, filterMinCF, filterBeta, frameDetection, simThreshold }) {
     this.imageTargetSrc = imageTargetSrc;
     this.maxTrack = maxTrack;
     this.frameDetection = frameDetection;
+    this.simThreshold = simThreshold;
     this.filterMinCF = filterMinCF;
     this.filterBeta = filterBeta;
     this.missTolerance = missTolerance;
@@ -155,6 +157,7 @@ AFRAME.registerSystem('mindar-image-system', {
       inputHeight: video.videoHeight,
       maxTrack: this.maxTrack, 
       frameDetection: this.frameDetection,
+      simThreshold: this.simThreshold,
       filterMinCF: this.filterMinCF,
       filterBeta: this.filterBeta,
       missTolerance: this.missTolerance,
@@ -249,10 +252,19 @@ AFRAME.registerComponent('mindar-image', {
   schema: {
     imageTargetSrc: {type: 'string'},
     maxTrack: {type: 'int', default: 1},
-    frameDetectionTop: {type: 'number', default: 0},
-    frameDetectionRight: {type: 'number', default: 0},
-    frameDetectionBottom: {type: 'number', default: 0},
-    frameDetectionLeft: {type: 'number', default: 0},
+    frameDetection: {
+      default: "{ top: 0, right: 0, bottom: 0, left: 0 }",
+        parse: function (value) {
+        if (typeof value == "string")
+          return JSON.parse(value.replace(/(['"])?([a-z0-9A-Z_]+)(['"])?:/g, '"$2": '));
+        else
+          return value;
+      },
+      stringify: function (value) {
+        return JSON.stringify(value);
+      }
+      },
+    simThreshold: { type: 'number', default: -1 },
     filterMinCF: {type: 'number', default: -1},
     filterBeta: {type: 'number', default: -1},
     missTolerance: {type: 'int', default: -1},
@@ -262,7 +274,7 @@ AFRAME.registerComponent('mindar-image', {
     uiLoading: {type: 'string', default: 'yes'},
     uiScanning: {type: 'string', default: 'yes'},
     uiError: {type: 'string', default: 'yes'},
-  },
+    },
 
   init: function() {
     const arSystem = this.el.sceneEl.systems['mindar-image-system'];
@@ -270,12 +282,8 @@ AFRAME.registerComponent('mindar-image', {
     arSystem.setup({
       imageTargetSrc: this.data.imageTargetSrc, 
       maxTrack: this.data.maxTrack,
-      frameDetection: {
-        top: this.data.frameDetectionTop,
-        right: this.data.frameDetectionRight,
-        bottom: this.data.frameDetectionBottom,
-        left: this.data.frameDetectionLeft
-      },
+      frameDetection: this.data.frameDetection,
+      simThreshold: this.data.simThreshold,
       filterMinCF: this.data.filterMinCF === -1? null: this.data.filterMinCF,
       filterBeta: this.data.filterBeta === -1? null: this.data.filterBeta,
       missTolerance: this.data.missTolerance === -1? null: this.data.missTolerance,

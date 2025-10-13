@@ -2,10 +2,6 @@ const { useEffect, useMemo, useRef, useState, useCallback } = React;
 
 const COLORS = ['#e6194b', '#3cb44b', '#ffe119', '#4363d8', '#f58231', '#911eb4', '#46f0f0', '#f032e6', '#bcf60c', '#fabebe', '#008080', '#e6beff', '#9a6324', '#fffac8', '#800000', '#aaffc3', '#808000', '#ffd8b1', '#000075', '#808080', '#ffffff', '#000000'];
 
-//const THREE = AFRAME.THREE;
-
-const TEMPLATE_RADIUS = 6;
-const AR2_SEARCH_SIZE = 10;
 
 const Display = ({ result }) => {
     const { queryImages, allPickedKeyframes, allTrackResults, dimensions, allWorldMatrices, allBeforeProjected, allAfterProjected, projectionMatrix } = result;
@@ -89,58 +85,54 @@ const Display = ({ result }) => {
         </div>
     )
 }
+const process = async (images, mind) => {
+    const targetIndex = 0;
+    const queryImages = [];
+    for (var i = 0; i < images.length; i++) {
+        queryImages.push(await utils.loadImage(images[i]));
+    }
 
-const Main = () => {
-    const [result, setResult] = useState();
+    const queryImage0 = queryImages[0];
 
-    useEffect(() => {
-        const process = async () => {
-            const targetIndex = 0;
-            const queryImages = [];
-            for (let i = 1; i <= 4; i += 3) {
-                //for (let i = 107; i <= 114; i+=3) {
-                try {
-                    queryImages.push(await utils.loadImage('../testing/videos/c1/out' + String(i).padStart(3, '0') + '.png'));
-                } catch (e) {
-                }
-            }
+    const inputWidth = queryImage0.width;
+    const inputHeight = queryImage0.height;
+    const controller = new MINDAR.Controller({
+        inputWidth, inputHeight, debugMode: true,
+        frameDetection: { top: 0.2, bottom: 0.2, left: 0.2, right: 0.2 }
+    });
+    const { dimensions, matchingDataList, trackingDataList } = await controller.addImageTargets(mind);
 
-            const queryImage0 = queryImages[0];
-
-            const inputWidth = queryImage0.width;
-            const inputHeight = queryImage0.height;
-            const controller = new MINDAR.Controller({ inputWidth, inputHeight, debugMode: false });
-            const { dimensions, matchingDataList, trackingDataList } = await controller.addImageTargets('../examples/image-tracking/assets/card-example/card.mind');
-            //const { dimensions, matchingDataList, trackingDataList } = await controller.addImageTargets('../examples/image-tracking/assets/band-example/raccoon-card.mind');
-
-            const allTrackResults = [];
-            const allBeforeProjected = [];
-            const allAfterProjected = [];
-            const allPickedKeyframes = [];
-
-            const allWorldMatrices = [];
-            for (let i = 0; i < queryImages.length; i++) {
-                const queryImage = queryImages[i];
-                const { featurePoints } = await controller.detect(queryImage);
-                const { modelViewTransform, allMatchResults } = await controller.match(featurePoints, targetIndex);
-                if (modelViewTransform) {
-                    allWorldMatrices.push(controller.getWorldMatrix(modelViewTransform, targetIndex));
-                } else {
-                    allWorldMatrices.push(null);
-                }
-            }
-
-            const projectionMatrix = controller.getProjectionMatrix();
-
-            const result = {
-                queryImages,
-                dimensions,
-                allWorldMatrices,
-                projectionMatrix,
-            }
-            setResult(result);
+    const allWorldMatrices = [];
+    const debugExtras = [];
+    for (let i = 0; i < queryImages.length; i++) {
+        const queryImage = queryImages[i];
+        const { featurePoints } = await controller.detect(queryImage);
+        const { modelViewTransform, debugExtra } = await controller.match(featurePoints, targetIndex);
+        if (modelViewTransform) {
+            allWorldMatrices.push(controller.getWorldMatrix(modelViewTransform, targetIndex));
+            debugExtras.push(debugExtra);
+        } else {
+            allWorldMatrices.push(null);
         }
-        process();
+    }
+
+    const projectionMatrix = controller.getProjectionMatrix();
+
+    const result = {
+        queryImages,
+        dimensions,
+        allWorldMatrices,
+        debugExtras,
+        projectionMatrix,
+    }
+    return result;
+}
+
+const Test = (params) => {
+    const [result, setResult] = useState();
+    const { images, mind } = params;
+    useEffect(async () => {
+        setResult(await process(images, mind));
     }, []);
 
     console.log("result", result);
@@ -153,9 +145,64 @@ const Main = () => {
         </div>
     )
 };
+var i = 1
+
+var images = [
+    'targets/target_frame_only.jpg',
+    "targets/frame_with_cloud_rot.jpg",
+    "targets/frame_with_checker_white_rot.jpg",
+    "targets/frame_with_people_rot.jpg",
+    "targets/frame_with_squares_rot.jpg",
+    'targets/frame_with_dog.jpg',
+];
+var mind = 'targets/target_frame_only.mind'
 
 ReactDOM.render(
-    <Main />,
-    document.getElementById('root')
+    <Test images={images} mind={mind} />,
+    document.getElementById('test' + (i++))
+);
+
+var images = [
+    'targets/target_dog.jpg',
+    "targets/frame_with_cloud_rot.jpg",
+    "targets/frame_with_checker_white_rot.jpg",
+    "targets/frame_with_people_rot.jpg",
+    "targets/frame_with_squares_rot.jpg",
+    'targets/frame_with_dog.jpg',
+];
+var mind = 'targets/target_dog.mind';
+
+ReactDOM.render(
+    <Test images={images} mind={mind} />,
+    document.getElementById('test' + (i++))
+);
+
+var images = [
+    'targets/target_frame_rays_border.jpg',
+    "targets/frame_rays_with_cloud.jpg",
+    "targets/frame_rays_with_cloud_rot.jpg",
+    "targets/frame_rays_with_people.jpg",
+    "targets/frame_rays_tr_with_cloud.jpg",
+];
+var mind = 'targets/target_frame_rays_border.mind';
+
+ReactDOM.render(
+    <Test images={images} mind={mind} />,
+    document.getElementById('test' + (i++))
+);
+
+var images = [
+    'targets/target_white_frame.jpg',
+    "targets/white_frame_black.jpg",
+    "targets/white_frame_black_rot.jpg",
+    "targets/white_frame_with_cloud_rot.jpg",
+    "targets/white_frame_with_cloud_contrast.jpg",
+    "targets/white_frame_with_people_rot.jpg",
+];
+var mind = 'targets/target_white_frame.mind';
+
+ReactDOM.render(
+    <Test images={images} mind={mind} />,
+    document.getElementById('test' + (i++))
 );
 
