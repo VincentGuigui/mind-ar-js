@@ -22,7 +22,7 @@ const project = (X, Y, Z) => ({x: 800 * X / Z + 640, y: 800 * Y / Z + 360});
 const world = [[0, 0], [1000, 0], [1000, 600], [0, 600]];
 const corners = world.map(([x, y]) => project(x - 500, y - 300, 2000));
 
-const match = t.matchQuad(corners, [0]);
+const match = t.matchQuad([corners], [0]);
 check('matchQuad finds target', match !== null && match.targetIndex === 0);
 if (match) {
   const mvt = match.modelViewTransform;
@@ -33,16 +33,16 @@ if (match) {
 
 // wrong orientation (corners rotated by one) must be corrected by _bestOrientation
 const rotated = [corners[1], corners[2], corners[3], corners[0]];
-const match2 = t.matchQuad(rotated, [0]);
+const match2 = t.matchQuad([rotated], [0]);
 check('matchQuad fixes 90deg corner shift', match2 !== null && Math.abs(match2.modelViewTransform[2][3] - 2000) < 20);
 
 // a quad with a very different ratio must be rejected (quality gate)
 const badWorld = [[0, 0], [1000, 0], [1000, 3000], [0, 3000]];
 const badCorners = badWorld.map(([x, y]) => project(x - 500, y - 1500, 4000));
-check('wrong-ratio quad rejected', t.matchQuad(badCorners, [0]) === null);
+check('wrong-ratio quad rejected', t.matchQuad([badCorners], [0]) === null);
 
 // trackQuad keeps assignment stable vs lastCorners
-const track = t.trackQuad(rotated, 0, match.corners);
+const track = t.trackQuad([rotated], 0, match.corners);
 check('trackQuad temporal lock', track !== null && Math.abs(track.modelViewTransform[2][3] - 2000) < 20);
 
 // --- mask path: synthetic white ring on a small work frame ---
@@ -60,8 +60,10 @@ for (let y = 26; y <= 50; y++) for (let x = 60; x <= 90; x++) mask[y * 160 + x] 
 // small white noise blob elsewhere
 for (let y = 100; y <= 104; y++) for (let x = 10; x <= 14; x++) mask[y * 160 + x] = 1;
 
-const quad = t._largestQuadComponent(mask);
+const quads = t._quadComponents(mask);
+const quad = quads.length > 0 ? quads[0] : null;
 check('quad found from ring mask', quad !== null);
+check('noise blob not reported as candidate', quads.length === 1);
 if (quad) {
   const xs = quad.map(p => p.x).sort((a, b) => a - b);
   const ys = quad.map(p => p.y).sort((a, b) => a - b);
@@ -71,7 +73,7 @@ if (quad) {
 
 // full-white frame must be rejected
 const full = new Uint8Array(160 * 120).fill(1);
-check('full-white frame rejected', t._largestQuadComponent(full) === null);
+check('full-white frame rejected', t._quadComponents(full).length === 0);
 
 // adaptive threshold: warm/dim "white" (200,190,160) vs grey content (120,120,120)
 const w = 40, h = 30;

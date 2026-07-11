@@ -45,27 +45,29 @@ class WhiteBorderTracker {
     this.context = this.canvas.getContext('2d', {willReadFrequently: true});
   }
 
-  // detect the white-border quad in the current frame.
-  // returns 4 corners ordered clockwise (image coords, full input resolution), or null
-  findQuadCorners(input) {
+  // detect white-border quad candidates in the current frame.
+  // returns an array (possibly empty) of 4-corner quads ordered clockwise
+  // (image coords, full input resolution), biggest first
+  findQuadCandidates(input) {
     this.context.drawImage(input, 0, 0, this.workWidth, this.workHeight);
     const {data} = this.context.getImageData(0, 0, this.workWidth, this.workHeight);
     const mask = this._whiteMask(data);
-    const quad = this._largestQuadComponent(mask);
-    if (quad === null) return null;
-    return quad.map((p) => ({x: p.x / this.workScale, y: p.y / this.workScale}));
+    const quads = this._quadComponents(mask);
+    return quads.map((quad) => quad.map((p) => ({x: p.x / this.workScale, y: p.y / this.workScale})));
   }
 
-  // initial detection: given the quad corners, find which (non-tracked) target it matches
-  // and its pose. Orientation is chosen by pose quality (aspect ratio consistency), with
-  // ties broken towards the marker being upright on screen.
-  matchQuad(corners, targetIndexes) {
+  // initial detection: among the candidate quads, find which one matches a (non-tracked)
+  // target, and its pose. Orientation is chosen by pose quality (aspect ratio consistency),
+  // with ties broken towards the marker being upright on screen.
+  matchQuad(quadCandidates, targetIndexes) {
     let best = null;
-    for (const targetIndex of targetIndexes) {
-      const candidate = this._bestOrientation(corners, targetIndex);
-      if (candidate === null) continue;
-      if (best === null || candidate.quality > best.quality) {
-        best = {targetIndex, ...candidate};
+    for (const corners of quadCandidates) {
+      for (const targetIndex of targetIndexes) {
+        const candidate = this._bestOrientation(corners, targetIndex);
+        if (candidate === null) continue;
+        if (best === null || candidate.quality > best.quality) {
+          best = {targetIndex, ...candidate};
+        }
       }
     }
     if (best === null || best.quality < MIN_NORM_RATIO_QUALITY) return null;
@@ -76,24 +78,26 @@ class WhiteBorderTracker {
     return {targetIndex: best.targetIndex, modelViewTransform, corners: best.corners};
   }
 
-  // tracking update: keep the corner assignment temporally consistent with the previous frame
-  trackQuad(corners, targetIndex, lastCorners) {
-    let bestShift = 0;
-    let bestDist = Infinity;
-    for (let shift = 0; shift < 4; shift++) {
-      let dist = 0;
-      for (let i = 0; i < 4; i++) {
-        const c = corners[(i + shift) % 4];
-        const dx = c.x - lastCorners[i].x;
-        const dy = c.y - lastCorners[i].y;
-        dist += dx * dx + dy * dy;
-      }
-      if (dist < bestDist) {
-        bestDist = dist;
-        bestShift = shift;
+  // tracking update: pick the candidate quad and corner assignment temporally consistent
+  // with the previous frame
+  trackQuad(quadCandidates, targetIndex, lastCorners) {
+    let best = null;
+    for (const corners of quadCandidates) {
+      for (let shift = 0; shift < 4; shift++) {
+        let dist = 0;
+        for (let i = 0; i < 4; i++) {
+          const c = corners[(i + shift) % 4];
+          const dx = c.x - lastCorners[i].x;
+          const dy = c.y - lastCorners[i].y;
+          dist += dx * dx + dy * dy;
+        }
+        if (best === null || dist < best.dist) {
+          best = {corners, shift, dist};
+        }
       }
     }
-    const shifted = this._shiftCorners(corners, bestShift);
+    if (best === null) return null;
+    const shifted = this._shiftCorners(best.corners, best.shift);
     if (this._quality(shifted, targetIndex) < MIN_NORM_RATIO_QUALITY) return null;
     const modelViewTransform = this.estimator.estimate({
       screenCoords: shifted,
@@ -196,9 +200,11 @@ class WhiteBorderTracker {
     return mask;
   }
 
-  // find connected white components, keep quad-like ones, return the largest quad
-  // (corners in work coords, clockwise) or null
-  _largestQuadComponent(mask) {
+  // find connected white components, keep quad-like ones, return their corner quads
+  // (work coords, clockwise), biggest first — several white regions can coexist in the
+  // frame (the card plus e.g. a white sheet of paper), the pose-quality gate picks the
+  // one matching the target ratio
+  _quadComponents(mask) {
     const width = this.workWidth;
     const height = this.workHeight;
     const n = width * height;
@@ -209,8 +215,7 @@ class WhiteBorderTracker {
     const rowMin = new Int32Array(height);
     const rowMax = new Int32Array(height);
 
-    let bestQuad = null;
-    let bestArea = 0;
+    const candidates = [];
 
     for (let start = 0; start < n; start++) {
       if (mask[start] === 0 || visited[start] === 1) continue;
@@ -252,14 +257,11 @@ class WhiteBorderTracker {
       const onBorder = quad.filter(([x, y]) => x <= 1 || y <= 1 || x >= width - 2 || y >= height - 2);
       if (onBorder.length === 4) continue;
 
-      if (quadArea > bestArea) {
-        bestArea = quadArea;
-        bestQuad = this._refineCorners(hull, quad);
-      }
+      candidates.push({area: quadArea, corners: this._orderClockwise(this._refineCorners(hull, quad))});
     }
 
-    if (bestQuad === null) return null;
-    return this._orderClockwise(bestQuad);
+    candidates.sort((a, b) => b.area - a.area);
+    return candidates.slice(0, 5).map((c) => c.corners);
   }
 
   // Andrew monotone chain, returns hull vertices in counter-clockwise order (math coords)

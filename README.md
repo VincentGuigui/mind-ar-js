@@ -222,3 +222,94 @@ The computer vision idea is borrowed from artoolkit (i.e. https://github.com/art
 
 Face Tracking is based on mediapipe face mesh model (i.e. https://google.github.io/mediapipe/solutions/face_mesh.html)
 
+
+# White-border tracking (fork feature)
+
+This fork adds an alternative, compilation-free tracking method: instead of matching
+pre-compiled (`.mind`) image features, the tracker detects the outer quad of a **white
+border/contour** around the physical target and estimates the pose from its 4 corners.
+It works with any image content (photo, drawing, even large white zones) and any image
+ratio, and requires **no `.mind` file / no training step**. It is fully opt-in: the default
+`trackingMethod` is `features` and existing behavior is unchanged.
+
+## Usage
+
+A-Frame — declare targets by their height/width ratio instead of an `imageTargetSrc`:
+
+```html
+<a-scene mindar-image="trackingMethod: whiteBorder; targetRatios: 0.7;">
+  <a-entity mindar-image-target="targetIndex: 0"> ... </a-entity>
+</a-scene>
+```
+
+Three.js / plain Controller:
+
+```js
+const mindarThree = new MindARThree({container, trackingMethod: 'whiteBorder', targetRatios: [0.7]});
+// or
+const controller = new Controller({inputWidth, inputHeight, trackingMethod: 'whiteBorder'});
+controller.addWhiteBorderTargets([0.7]); // ratios (height/width), one per target
+```
+
+Everything downstream (anchors, targetFound/targetLost, one-euro smoothing, warmup/miss
+tolerances) behaves exactly like the feature tracker. In `whiteBorder` mode no tfjs pipeline
+and no worker are created; detection runs in a few ms per frame on the main thread.
+
+## How it works (src/image-target/white-border-tracker.js)
+
+1. The camera frame is downscaled (largest side = `WORK_SIZE`).
+2. An **adaptive white mask** is built: a pixel is "white" if it is bright *relative to the
+   frame's brightest percentile* and near-grey. This is what makes the tracking tolerant to
+   camera feeds where white is never pure white (exposure, warm lighting, shadows).
+3. Connected white components are extracted; each quad-like component (convex hull ≈
+   quadrilateral) becomes a candidate. Corners are refined to sub-pixel accuracy by fitting
+   lines to the hull edges.
+4. For each candidate, the pose is estimated from the 4 corners (DLT homography +
+   decomposition, same estimator as the feature tracker). A **ratio-quality metric** (the
+   balance of the two rotation column norms of `K⁻¹H`, tilt-invariant) both resolves the
+   90° corner-assignment ambiguity and rejects white regions whose aspect ratio doesn't
+   match the declared target ratio.
+5. While tracking, the corner assignment is kept temporally consistent with the previous
+   frame.
+
+## Tuning constants (top of white-border-tracker.js)
+
+| Constant | Default | Meaning |
+|---|---|---|
+| `WORK_SIZE` | 480 | analysis resolution (largest side); higher = more precision, more CPU |
+| `MIN_WHITE_LUMA` | 100 | absolute brightness floor for "white" (0-255) |
+| `WHITE_PERCENTILE` | 0.98 | reference percentile = "the whitest thing currently visible" |
+| `WHITE_RELATIVE` | 0.75 | white threshold = `max(MIN_WHITE_LUMA, percentile × WHITE_RELATIVE)`; raise (→0.85) if bright non-white surfaces pollute the mask, lower (→0.65) if the border drops out under uneven lighting |
+| `MAX_CHROMA_RATIO` | 0.3 | a white pixel must be near-grey: `(max−min) ≤ ratio × brightness`; tolerates warm tints, rejects bright colors |
+| `MIN_COMPONENT_AREA_RATIO` | 0.01 | minimum white region size (fraction of the frame) |
+| `MIN_QUAD_FILL` | 0.85 | quad area / hull area: how quadrilateral a region must be |
+| `MIN_NORM_RATIO_QUALITY` | 0.65 | pose-quality gate (1 = perfect ratio match); raises = stricter ratio matching |
+
+## QA & tests
+
+- `node testing/white-border-tracker.test.mjs` — unit tests of the geometry/pose math on
+  hand-built masks and projected quads.
+- `node testing/white-border-accuracy.test.mjs` — **end-to-end accuracy**: renders synthetic
+  camera frames (`testing/synthetic-frame.mjs`) with a white-bordered card at known 3D poses —
+  sweeping position, rotation, tilt, distance, ratio, border tint, lighting, noise, content
+  (incl. large white zones) and background clutter (incl. an adversarial white strip) — runs
+  the real pixel pipeline and asserts corner localization (≤2px), distance (≤5%) and rotation
+  (≤2.5°) against ground truth, plus must-not-detect cases.
+- `testing/white-border-interactive.html` — **interactive QA page** (for humans and automated
+  agents): sliders for position/rotation/tilt/scale/ratio/border/lighting/content/background,
+  realtime overlay of ground truth (yellow), candidates (blue) and matched quad (green) with
+  live corner/distance/rotation error metrics; also an animated orbit mode and a live-camera
+  mode. Serve the repo root (`python3 -m http.server 8123`, after `npm run build`) and open
+  `http://localhost:8123/testing/white-border-interactive.html`. For automation the page
+  exposes `window.__setParams({...})` / `window.__lastResult`.
+
+## Limitations
+
+- A plain white border is 180°-symmetric: content can appear upside down if the card is first
+  seen rotated more than ~45° (initial acquisition assumes the card is roughly upright; once
+  acquired, tracking follows any rotation). Near-square ratios (~1) additionally allow 90°
+  ambiguity.
+- The border identifies *a* white-bordered rectangle of the right ratio, not *which* one: two
+  cards with similar ratios are indistinguishable (use `features` mode when identity matters).
+- The tracked contour is the **outer** edge of the white region; the declared ratio should be
+  the ratio of that outer rectangle.

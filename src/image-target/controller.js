@@ -152,7 +152,7 @@ class Controller {
   // warm up gpu - build kernels is slow
   dummyRun(input) {
     if (this.trackingMethod === TRACKING_METHOD_WHITE_BORDER) {
-      this.whiteBorderTracker.findQuadCorners(input);
+      this.whiteBorderTracker.findQuadCandidates(input);
       return;
     }
     const inputT = this.inputLoader.loadInput(input);
@@ -282,14 +282,14 @@ class Controller {
       while (true) {
 	if (!this.processingVideo) break;
 
-	const corners = this.whiteBorderTracker.findQuadCorners(input);
+	const quadCandidates = this.whiteBorderTracker.findQuadCandidates(input);
 
 	const nTracking = this.trackingStates.reduce((acc, s) => {
 	  return acc + (!!s.isTracking? 1: 0);
 	}, 0);
 
 	// detect and match only if less then maxTrack
-	if (corners !== null && nTracking < this.maxTrack) {
+	if (quadCandidates.length > 0 && nTracking < this.maxTrack) {
 	  const matchingIndexes = [];
 	  for (let i = 0; i < this.trackingStates.length; i++) {
 	    const trackingState = this.trackingStates[i];
@@ -299,7 +299,7 @@ class Controller {
 	    matchingIndexes.push(i);
 	  }
 
-	  const matchResult = this.whiteBorderTracker.matchQuad(corners, matchingIndexes);
+	  const matchResult = this.whiteBorderTracker.matchQuad(quadCandidates, matchingIndexes);
 	  if (matchResult !== null) {
 	    const trackingState = this.trackingStates[matchResult.targetIndex];
 	    trackingState.isTracking = true;
@@ -313,7 +313,7 @@ class Controller {
 	  const trackingState = this.trackingStates[i];
 
 	  if (trackingState.isTracking) {
-	    const trackResult = corners === null? null: this.whiteBorderTracker.trackQuad(corners, i, trackingState.lastCorners);
+	    const trackResult = quadCandidates.length === 0? null: this.whiteBorderTracker.trackQuad(quadCandidates, i, trackingState.lastCorners);
 	    if (trackResult === null) {
 	      trackingState.isTracking = false;
 	    } else {

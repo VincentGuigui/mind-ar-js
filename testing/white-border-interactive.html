@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html>
+<!--
+  White-border tracking interactive QA page.
+
+  Renders a synthetic camera frame (testing/synthetic-frame.mjs) with a white-bordered card
+  whose pose (position, rotation, tilt, scale/distance), border, content, lighting and
+  background are driven by sliders, runs the REAL tracker (Controller / WhiteBorderTracker
+  from the built dist bundle) on every change, and overlays the detected quad + realtime
+  metrics vs the ground truth. A camera mode tracks a live getUserMedia feed instead.
+
+  Serve the repo root over HTTP (module imports don't work from file://), e.g.:
+      python3 -m http.server 8123
+  then open  http://localhost:8123/testing/white-border-interactive.html
+  (requires a prior `npm run build` for ../dist/mindar-image.prod.js)
+
+  For AI/automated QA the page exposes:
+      window.__ready               true once initialized
+      window.__setParams({...})    set any synthetic-frame params, returns the new result
+      window.__lastResult          {detected, cornerErrPx, distErrPct, rotErrDeg, quality, ms, corners, groundTruth}
+-->
+
+<head>
+  <meta charset="utf-8" />
+  <title>White-border tracking QA</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 16px; background: #1b1e24; color: #e8e8e8; }
+    h1 { font-size: 18px; }
+    #layout { display: flex; gap: 24px; flex-wrap: wrap; }
+    #view { position: relative; }
+    canvas { border: 1px solid #444; image-rendering: pixelated; }
+    #overlay { position: absolute; left: 0; top: 0; pointer-events: none; }
+    #controls { min-width: 320px; max-width: 420px; }
+    .row { display: flex; align-items: center; gap: 8px; margin: 4px 0; }
+    .row label { width: 150px; font-size: 13px; }
+    .row input[type=range] { flex: 1; }
+    .row output { width: 48px; text-align: right; font-size: 12px; color: #9ecbff; }
+    select, button { background: #2a2f3a; color: #e8e8e8; border: 1px solid #555; border-radius: 4px; padding: 3px 8px; }
+    #metrics { margin-top: 12px; font-size: 14px; line-height: 1.6; white-space: pre; font-family: ui-monospace, monospace; }
+    .ok { color: #6fdc8c; } .bad { color: #ff8389; }
+    fieldset { border: 1px solid #444; border-radius: 6px; margin-bottom: 10px; }
+    legend { font-size: 12px; color: #aaa; padding: 0 6px; }
+  </style>
+</head>
+
+<body>
+  <h1>White-border tracking — interactive QA</h1>
+  <div id="layout">
+    <div id="view">
+      <canvas id="frame" width="480" height="270" style="width:720px;height:405px"></canvas>
+      <canvas id="overlay" width="480" height="270" style="width:720px;height:405px"></canvas>
+      <div id="metrics">loading…</div>
+    </div>
+    <div id="controls">
+      <fieldset><legend>Pose</legend>
+        <div class="row"><label>Position X</label><input type="range" id="offsetX" min="-80" max="80" value="0" /><output></output></div>
+        <div class="row"><label>Position Y</label><input type="range" id="offsetY" min="-45" max="45" value="0" /><output></output></div>
+        <div class="row"><label>Distance (scale)</label><input type="range" id="distance" min="110" max="600" value="180" /><output></output></div>
+        <div class="row"><label>Rotation (in-plane)</label><input type="range" id="rotZ" min="-180" max="180" value="0" /><output></output></div>
+        <div class="row"><label>Tilt X</label><input type="range" id="tiltX" min="-60" max="60" value="0" /><output></output></div>
+        <div class="row"><label>Tilt Y</label><input type="range" id="tiltY" min="-60" max="60" value="0" /><output></output></div>
+      </fieldset>
+      <fieldset><legend>Card</legend>
+        <div class="row"><label>Ratio (h/w)</label><input type="range" id="ratio" min="0.4" max="1.6" step="0.05" value="0.7" /><output></output></div>
+        <div class="row"><label>Border thickness</label><input type="range" id="borderFrac" min="0.02" max="0.2" step="0.01" value="0.08" /><output></output></div>
+        <div class="row"><label>Content</label>
+          <select id="content"><option value="photo">photo</option><option value="whiteZones">large white zones</option><option value="dark">dark</option></select>
+        </div>
+      </fieldset>
+      <fieldset><legend>Conditions</legend>
+        <div class="row"><label>Light level</label><input type="range" id="lightLevel" min="0.4" max="1.2" step="0.05" value="1" /><output></output></div>
+        <div class="row"><label>Warm tint</label><input type="range" id="warmth" min="0" max="1" step="0.1" value="0" /><output></output></div>
+        <div class="row"><label>Light gradient</label><input type="range" id="gradient" min="0" max="1" step="0.1" value="0" /><output></output></div>
+        <div class="row"><label>Sensor noise</label><input type="range" id="noise" min="0" max="25" value="0" /><output></output></div>
+        <div class="row"><label>Background</label>
+          <select id="background"><option value="clutter">clutter</option><option value="plain">plain</option></select>
+        </div>
+        <div class="row"><label>White strip (adversarial)</label><input type="checkbox" id="adversarialWhiteRect" /></div>
+      </fieldset>
+      <fieldset><legend>Mode</legend>
+        <div class="row"><label>Animate (orbit)</label><input type="checkbox" id="animate" /></div>
+        <div class="row"><label>Live camera</label><input type="checkbox" id="camera" /> <span style="font-size:12px;color:#aaa">(uses ratio slider as target ratio)</span></div>
+      </fieldset>
+    </div>
+  </div>
+
+  <script type="module">
+    import {Controller} from '../dist/mindar-image.prod.js';
+    import {renderFrame, defaultParams} from './synthetic-frame.mjs';
+
+    const W = 480, H = 270;
+    const frameCanvas = document.getElementById('frame');
+    const frameCtx = frameCanvas.getContext('2d');
+    const overlay = document.getElementById('overlay');
+    const overlayCtx = overlay.getContext('2d');
+    const metricsEl = document.getElementById('metrics');
+
+    const params = {...defaultParams};
+    let controller = null, video = null, animT = 0;
+
+    const numericIds = ['offsetX', 'offsetY', 'distance', 'rotZ', 'tiltX', 'tiltY', 'ratio', 'borderFrac',
+      'lightLevel', 'warmth', 'gradient', 'noise'];
+    const inputs = {};
+    for (const id of [...numericIds, 'content', 'background', 'adversarialWhiteRect', 'animate', 'camera']) {
+      inputs[id] = document.getElementById(id);
+    }
+
+    const makeController = (ratio) => {
+      const c = new Controller({inputWidth: W, inputHeight: H, trackingMethod: 'whiteBorder'});
+      c.addWhiteBorderTargets([ratio]);
+      return c;
+    };
+
+    const readUI = () => {
+      for (const id of numericIds) params[id] = parseFloat(inputs[id].value);
+      params.content = inputs.content.value;
+      params.background = inputs.background.value;
+      params.adversarialWhiteRect = inputs.adversarialWhiteRect.checked;
+      for (const id of numericIds) {
+        const out = inputs[id].parentElement.querySelector('output');
+        if (out) out.value = inputs[id].value;
+      }
+    };
+
+    const cyclicCornerError = (detected, truth) => {
+      let best = Infinity;
+      for (let shift = 0; shift < 4; shift++) {
+        let sum = 0;
+        for (let i = 0; i < 4; i++) {
+          const c = detected[(i + shift) % 4];
+          sum += Math.hypot(c.x - truth[i].x, c.y - truth[i].y);
+        }
+        best = Math.min(best, sum / 4);
+      }
+      return best;
+    };
+
+    const drawQuad = (corners, color, labelFirst) => {
+      overlayCtx.strokeStyle = color;
+      overlayCtx.lineWidth = 1.5;
+      overlayCtx.beginPath();
+      corners.forEach((c, i) => i === 0 ? overlayCtx.moveTo(c.x, c.y) : overlayCtx.lineTo(c.x, c.y));
+      overlayCtx.closePath();
+      overlayCtx.stroke();
+      if (labelFirst) { // mark corner 0 (the tracker's "top-left") to visualize orientation
+        overlayCtx.fillStyle = color;
+        overlayCtx.beginPath();
+        overlayCtx.arc(corners[0].x, corners[0].y, 4, 0, 7);
+        overlayCtx.fill();
+      }
+    };
+
+    const update = () => {
+      readUI();
+      overlayCtx.clearRect(0, 0, W, H);
+
+      let groundTruth = null;
+      if (inputs.camera.checked && video) {
+        frameCtx.drawImage(video, 0, 0, W, H);
+      } else {
+        const frame = renderFrame(params);
+        frameCtx.putImageData(new ImageData(frame.rgba, W, H), 0, 0);
+        groundTruth = frame.groundTruth;
+      }
+
+      if (!controller || controller.markerDimensions[0][1] !== Math.round(1000 * params.ratio)) {
+        controller = makeController(params.ratio);
+      }
+      const t0 = performance.now();
+      const candidates = controller.whiteBorderTracker.findQuadCandidates(frameCanvas);
+      const match = controller.whiteBorderTracker.matchQuad(candidates, [0]);
+      const ms = performance.now() - t0;
+
+      let result = {detected: !!match, ms: +ms.toFixed(1), corners: match?.corners ?? null, groundTruth};
+      const lines = [];
+      if (groundTruth) drawQuad(groundTruth.corners, '#ffd166', false);
+      candidates.forEach((quad) => drawQuad(quad, 'rgba(120,120,255,0.5)', false));
+      if (match) {
+        drawQuad(match.corners, '#6fdc8c', true);
+        lines.push(`<span class="ok">DETECTED</span>  (${ms.toFixed(1)} ms, ${candidates.length} candidate(s))`);
+        if (groundTruth) {
+          const cornerErr = cyclicCornerError(match.corners, groundTruth.corners);
+          const gtDist = groundTruth.translation[2];
+          // marker units are 1000 per card width; renderer units are cardWidthUnits — rescale
+          const distScaled = match.modelViewTransform[2][3] * (groundTruth.cardWidthUnits / 1000);
+          const distErr = 100 * Math.abs(distScaled - gtDist) / gtDist;
+          const a = Math.atan2(match.modelViewTransform[1][0], match.modelViewTransform[0][0]);
+          const b = Math.atan2(groundTruth.rotation[1][0], groundTruth.rotation[0][0]);
+          let rotErr = Math.abs(a - b) * 180 / Math.PI; rotErr %= 360; if (rotErr > 180) rotErr = 360 - rotErr;
+          const cls = (v, lim) => v <= lim ? 'ok' : 'bad';
+          lines.push(`corner error  <span class="${cls(cornerErr, 3)}">${cornerErr.toFixed(2)} px</span>`);
+          lines.push(`distance err  <span class="${cls(distErr, 6)}">${distErr.toFixed(1)} %</span>`);
+          lines.push(`rotation err  <span class="${cls(Math.min(rotErr, Math.abs(180 - rotErr)), 3)}">${rotErr.toFixed(1)}°</span> (180° amb. inherent)`);
+          result = {...result, cornerErrPx: +cornerErr.toFixed(2), distErrPct: +distErr.toFixed(1), rotErrDeg: +rotErr.toFixed(1)};
+        }
+      } else {
+        lines.push(`<span class="bad">NOT DETECTED</span>  (${ms.toFixed(1)} ms, ${candidates.length} candidate(s))`);
+      }
+      lines.push('<span style="color:#ffd166">yellow</span>=ground truth  <span style="color:#8888ff">blue</span>=candidates  <span style="color:#6fdc8c">green</span>=matched (dot = corner 0)');
+      metricsEl.innerHTML = lines.join('\n');
+      window.__lastResult = result;
+      return result;
+    };
+
+    for (const id of numericIds) inputs[id].addEventListener('input', update);
+    for (const id of ['content', 'background']) inputs[id].addEventListener('change', update);
+    inputs.adversarialWhiteRect.addEventListener('change', update);
+
+    inputs.camera.addEventListener('change', async () => {
+      if (inputs.camera.checked) {
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({video: {facingMode: 'environment'}, audio: false});
+          video = document.createElement('video');
+          video.srcObject = stream;
+          video.muted = true;
+          video.setAttribute('playsinline', '');
+          await video.play();
+          const cameraLoop = () => {
+            if (!inputs.camera.checked) { stream.getTracks().forEach((t) => t.stop()); video = null; return; }
+            update();
+            requestAnimationFrame(cameraLoop);
+          };
+          cameraLoop();
+        } catch (e) {
+          inputs.camera.checked = false;
+          metricsEl.textContent = 'camera unavailable: ' + e.message;
+        }
+      }
+    });
+
+    inputs.animate.addEventListener('change', () => {
+      const loop = () => {
+        if (!inputs.animate.checked) return;
+        animT += 0.02;
+        inputs.rotZ.value = Math.round(40 * Math.sin(animT));
+        inputs.tiltX.value = Math.round(25 * Math.sin(animT * 0.7));
+        inputs.tiltY.value = Math.round(30 * Math.cos(animT * 0.5));
+        inputs.offsetX.value = Math.round(30 * Math.sin(animT * 0.3));
+        update();
+        requestAnimationFrame(loop);
+      };
+      loop();
+    });
+
+    // automation hooks (headless / AI QA)
+    window.__setParams = (p) => {
+      for (const [k, v] of Object.entries(p)) {
+        if (inputs[k]) {
+          if (inputs[k].type === 'checkbox') inputs[k].checked = !!v;
+          else inputs[k].value = v;
+        }
+      }
+      return update();
+    };
+
+    update();
+    window.__ready = true;
+  </script>
+</body>
+
+</html>
