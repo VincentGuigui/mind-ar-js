@@ -6,18 +6,25 @@ import {Tracker} from './tracker/tracker.js';
 import {CropDetector} from './detector/crop-detector.js';
 import {Compiler} from './compiler.js';
 import {InputLoader} from './input-loader.js';
+import {WhiteBorderTracker} from './white-border-tracker.js';
 import {OneEuroFilter} from '../libs/one-euro-filter.js';
 
 const DEFAULT_FILTER_CUTOFF = 0.001; // 1Hz. time period in milliseconds
 const DEFAULT_FILTER_BETA = 1000;
 const DEFAULT_WARMUP_TOLERANCE = 5;
 const DEFAULT_MISS_TOLERANCE = 5;
+// marker width in marker units for white-border targets (no compiled image to take the
+// pixel size from); same order of magnitude as typical compiled target images
+const WHITE_BORDER_MARKER_WIDTH = 1000;
+const TRACKING_METHOD_FEATURES = 'features';
+const TRACKING_METHOD_WHITE_BORDER = 'whiteBorder';
 
 class Controller {
-  constructor({inputWidth, inputHeight, onUpdate=null, debugMode=false, maxTrack=1, 
+  constructor({inputWidth, inputHeight, onUpdate=null, debugMode=false, maxTrack=1,
     warmupTolerance=null, missTolerance=null, filterMinCF=null, filterBeta=null,
       frameDetection = { top: 0, right: 0, bottom: 0, left: 0 },
-      simThreshold = -1
+      simThreshold = -1,
+      trackingMethod = TRACKING_METHOD_FEATURES
   }) {
 
     this.inputWidth = inputWidth;
@@ -25,12 +32,16 @@ class Controller {
     this.maxTrack = maxTrack;
     this.frameDetection = frameDetection;
     this.simThreshold = simThreshold;
+    this.trackingMethod = trackingMethod;
+    this.whiteBorderTracker = null;
     this.filterMinCF = filterMinCF === null? DEFAULT_FILTER_CUTOFF: filterMinCF;
     this.filterBeta = filterBeta === null? DEFAULT_FILTER_BETA: filterBeta;
     this.warmupTolerance = warmupTolerance === null? DEFAULT_WARMUP_TOLERANCE: warmupTolerance;
     this.missTolerance = missTolerance === null? DEFAULT_MISS_TOLERANCE: missTolerance;
-    this.cropDetector = new CropDetector(this.inputWidth, this.inputHeight, debugMode, frameDetection);
-    this.inputLoader = new InputLoader(this.inputWidth, this.inputHeight);
+    if (this.trackingMethod !== TRACKING_METHOD_WHITE_BORDER) { // white-border mode has no use for the feature detector / tfjs input pipeline
+      this.cropDetector = new CropDetector(this.inputWidth, this.inputHeight, debugMode, frameDetection);
+      this.inputLoader = new InputLoader(this.inputWidth, this.inputHeight);
+    }
     this.markerDimensions = null;
     this.onUpdate = onUpdate;
     this.debugMode = debugMode;
@@ -59,17 +70,29 @@ class Controller {
       far: far,
     });
 
-    this.worker = new ControllerWorker()//new Worker(new URL('./controller.worker.js', import.meta.url));
-    this.workerMatchDone = null;
-    this.workerTrackDone = null;
-    this.worker.onmessage = (e) => {
-      if (e.data.type === 'matchDone' && this.workerMatchDone !== null) {
-        this.workerMatchDone(e.data);
-      }
-      if (e.data.type === 'trackUpdateDone' && this.workerTrackDone !== null) {
-        this.workerTrackDone(e.data);
+    this.worker = null;
+    if (this.trackingMethod !== TRACKING_METHOD_WHITE_BORDER) { // white-border pose estimation is cheap enough to run on the main thread
+      this.worker = new ControllerWorker()//new Worker(new URL('./controller.worker.js', import.meta.url));
+      this.workerMatchDone = null;
+      this.workerTrackDone = null;
+      this.worker.onmessage = (e) => {
+        if (e.data.type === 'matchDone' && this.workerMatchDone !== null) {
+          this.workerMatchDone(e.data);
+        }
+        if (e.data.type === 'trackUpdateDone' && this.workerTrackDone !== null) {
+          this.workerTrackDone(e.data);
+        }
       }
     }
+  }
+
+  // register white-border targets without any compiled (.mind) data: only the expected
+  // image ratios (height/width) are needed, the white contour provides the geometry
+  addWhiteBorderTargets(ratios) {
+    const dimensions = ratios.map((ratio) => [WHITE_BORDER_MARKER_WIDTH, Math.round(WHITE_BORDER_MARKER_WIDTH * ratio)]);
+    this.whiteBorderTracker = new WhiteBorderTracker(this.inputWidth, this.inputHeight, dimensions, this.projectionTransform, {debugMode: this.debugMode});
+    this.markerDimensions = dimensions;
+    return {dimensions};
   }
 
   showTFStats() {
@@ -119,13 +142,19 @@ class Controller {
 
   dispose() {
     this.stopProcessVideo();
-    this.worker.postMessage({
-      type: "dispose"
-    });
+    if (this.worker !== null) {
+      this.worker.postMessage({
+        type: "dispose"
+      });
+    }
   }
 
   // warm up gpu - build kernels is slow
   dummyRun(input) {
+    if (this.trackingMethod === TRACKING_METHOD_WHITE_BORDER) {
+      this.whiteBorderTracker.findQuadCorners(input);
+      return;
+    }
     const inputT = this.inputLoader.loadInput(input);
     this.cropDetector.detect(inputT);
     this.tracker.dummyRun(inputT);
@@ -178,11 +207,17 @@ class Controller {
 	showing: false,
 	isTracking: false,
 	currentModelViewTransform: null,
+	lastCorners: null,
 	trackCount: 0,
 	trackMiss: 0,
 	filter: new OneEuroFilter({minCutOff: this.filterMinCF, beta: this.filterBeta})
       });
       //console.log("filterMinCF", this.filterMinCF, this.filterBeta);
+    }
+
+    if (this.trackingMethod === TRACKING_METHOD_WHITE_BORDER) {
+      this._processVideoWhiteBorder(input);
+      return;
     }
 
     const startProcessing = async() => {
@@ -228,52 +263,7 @@ class Controller {
 	    }
 	  }
 
-	  // if not showing, then show it once it reaches warmup number of frames
-	  if (!trackingState.showing) {
-	    if (trackingState.isTracking) {
-	      trackingState.trackMiss = 0;
-	      trackingState.trackCount += 1;
-	      if (trackingState.trackCount > this.warmupTolerance) {
-		trackingState.showing = true;
-		trackingState.trackingMatrix = null;
-		trackingState.filter.reset();
-	      }
-	    }
-	  }
-	  
-	  // if showing, then count miss, and hide it when reaches tolerance
-	  if (trackingState.showing) {
-	    if (!trackingState.isTracking) {
-	      trackingState.trackCount = 0;
-	      trackingState.trackMiss += 1;
-
-	      if (trackingState.trackMiss > this.missTolerance) {
-		trackingState.showing = false;
-		trackingState.trackingMatrix = null;
-		this.onUpdate && this.onUpdate({type: 'updateMatrix', targetIndex: i, worldMatrix: null});
-	      }
-	    } else {
-	      trackingState.trackMiss = 0;
-	    }
-	  }
-	  
-	  // if showing, then call onUpdate, with world matrix
-	  if (trackingState.showing) {
-	    const worldMatrix = this._glModelViewMatrix(trackingState.currentModelViewTransform, i);
-	    trackingState.trackingMatrix = trackingState.filter.filter(Date.now(), worldMatrix);
-
-	    let clone = [];
-	    for (let j = 0; j < trackingState.trackingMatrix.length; j++) {
-	      clone[j] = trackingState.trackingMatrix[j];
-	    }
-
-      const isInputRotated = input.width === this.inputHeight && input.height === this.inputWidth;
-      if (isInputRotated) {
-        clone = this.getRotatedZ90Matrix(clone);
-      }
-
-	    this.onUpdate && this.onUpdate({type: 'updateMatrix', targetIndex: i, worldMatrix: clone});
-	  }
+	  this._updateTrackingVisibility(input, i);
 	}
 
 	inputT.dispose();
@@ -282,6 +272,116 @@ class Controller {
       }
     }
     startProcessing();
+  }
+
+  // white-border processing loop: one quad detection per frame (plain canvas pixels, no
+  // tfjs / worker), pose from the 4 corners; same trackingStates / warmup / miss / filter
+  // behavior as the feature loop
+  _processVideoWhiteBorder(input) {
+    const startProcessing = async() => {
+      while (true) {
+	if (!this.processingVideo) break;
+
+	const corners = this.whiteBorderTracker.findQuadCorners(input);
+
+	const nTracking = this.trackingStates.reduce((acc, s) => {
+	  return acc + (!!s.isTracking? 1: 0);
+	}, 0);
+
+	// detect and match only if less then maxTrack
+	if (corners !== null && nTracking < this.maxTrack) {
+	  const matchingIndexes = [];
+	  for (let i = 0; i < this.trackingStates.length; i++) {
+	    const trackingState = this.trackingStates[i];
+	    if (trackingState.isTracking === true) continue;
+	    if (this.interestedTargetIndex !== -1 && this.interestedTargetIndex !== i) continue;
+
+	    matchingIndexes.push(i);
+	  }
+
+	  const matchResult = this.whiteBorderTracker.matchQuad(corners, matchingIndexes);
+	  if (matchResult !== null) {
+	    const trackingState = this.trackingStates[matchResult.targetIndex];
+	    trackingState.isTracking = true;
+	    trackingState.currentModelViewTransform = matchResult.modelViewTransform;
+	    trackingState.lastCorners = matchResult.corners;
+	  }
+	}
+
+	// tracking update
+	for (let i = 0; i < this.trackingStates.length; i++) {
+	  const trackingState = this.trackingStates[i];
+
+	  if (trackingState.isTracking) {
+	    const trackResult = corners === null? null: this.whiteBorderTracker.trackQuad(corners, i, trackingState.lastCorners);
+	    if (trackResult === null) {
+	      trackingState.isTracking = false;
+	    } else {
+	      trackingState.currentModelViewTransform = trackResult.modelViewTransform;
+	      trackingState.lastCorners = trackResult.corners;
+	    }
+	  }
+
+	  this._updateTrackingVisibility(input, i);
+	}
+
+        this.onUpdate && this.onUpdate({type: 'processDone'});
+	await new Promise((resolve) => requestAnimationFrame(resolve));
+      }
+    }
+    startProcessing();
+  }
+
+  // shared per-target warmup / miss-tolerance / smoothing / onUpdate logic
+  _updateTrackingVisibility(input, i) {
+    const trackingState = this.trackingStates[i];
+
+    // if not showing, then show it once it reaches warmup number of frames
+    if (!trackingState.showing) {
+      if (trackingState.isTracking) {
+	trackingState.trackMiss = 0;
+	trackingState.trackCount += 1;
+	if (trackingState.trackCount > this.warmupTolerance) {
+	  trackingState.showing = true;
+	  trackingState.trackingMatrix = null;
+	  trackingState.filter.reset();
+	}
+      }
+    }
+
+    // if showing, then count miss, and hide it when reaches tolerance
+    if (trackingState.showing) {
+      if (!trackingState.isTracking) {
+	trackingState.trackCount = 0;
+	trackingState.trackMiss += 1;
+
+	if (trackingState.trackMiss > this.missTolerance) {
+	  trackingState.showing = false;
+	  trackingState.trackingMatrix = null;
+	  this.onUpdate && this.onUpdate({type: 'updateMatrix', targetIndex: i, worldMatrix: null});
+	}
+      } else {
+	trackingState.trackMiss = 0;
+      }
+    }
+
+    // if showing, then call onUpdate, with world matrix
+    if (trackingState.showing) {
+      const worldMatrix = this._glModelViewMatrix(trackingState.currentModelViewTransform, i);
+      trackingState.trackingMatrix = trackingState.filter.filter(Date.now(), worldMatrix);
+
+      let clone = [];
+      for (let j = 0; j < trackingState.trackingMatrix.length; j++) {
+	clone[j] = trackingState.trackingMatrix[j];
+      }
+
+      const isInputRotated = input.width === this.inputHeight && input.height === this.inputWidth;
+      if (isInputRotated) {
+	clone = this.getRotatedZ90Matrix(clone);
+      }
+
+      this.onUpdate && this.onUpdate({type: 'updateMatrix', targetIndex: i, worldMatrix: clone});
+    }
   }
 
   stopProcessVideo() {

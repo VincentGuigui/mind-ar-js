@@ -14,11 +14,14 @@ AFRAME.registerSystem('mindar-image-system', {
   },
 
     setup: function ({ imageTargetSrc, maxTrack, showStats, uiLoading, uiScanning, uiError,
-        missTolerance, warmupTolerance, filterMinCF, filterBeta, frameDetection, simThreshold }) {
+        missTolerance, warmupTolerance, filterMinCF, filterBeta, frameDetection, simThreshold,
+        trackingMethod, targetRatios }) {
     this.imageTargetSrc = imageTargetSrc;
     this.maxTrack = maxTrack;
     this.frameDetection = frameDetection;
     this.simThreshold = simThreshold;
+    this.trackingMethod = trackingMethod;
+    this.targetRatios = targetRatios;
     this.filterMinCF = filterMinCF;
     this.filterBeta = filterBeta;
     this.missTolerance = missTolerance;
@@ -155,9 +158,10 @@ AFRAME.registerSystem('mindar-image-system', {
     this.controller = new Controller({
       inputWidth: video.videoWidth,
       inputHeight: video.videoHeight,
-      maxTrack: this.maxTrack, 
+      maxTrack: this.maxTrack,
       frameDetection: this.frameDetection,
       simThreshold: this.simThreshold,
+      trackingMethod: this.trackingMethod,
       filterMinCF: this.filterMinCF,
       filterBeta: this.filterBeta,
       missTolerance: this.missTolerance,
@@ -190,7 +194,14 @@ AFRAME.registerSystem('mindar-image-system', {
     this._resize();
     window.addEventListener('resize', this._resize.bind(this));
 
-    const {dimensions: imageTargetDimensions} = await this.controller.addImageTargets(this.imageTargetSrc);
+    let imageTargetDimensions;
+    if (this.trackingMethod === 'whiteBorder') {
+      // no .mind file in white-border mode: targets are declared by their expected ratios (height/width)
+      const ratios = this.targetRatios.split(',').map((r) => parseFloat(r)).filter((r) => !isNaN(r) && r > 0);
+      ({dimensions: imageTargetDimensions} = this.controller.addWhiteBorderTargets(ratios));
+    } else {
+      ({dimensions: imageTargetDimensions} = await this.controller.addImageTargets(this.imageTargetSrc));
+    }
 
     for (let i = 0; i < this.anchorEntities.length; i++) {
       const {el, targetIndex} = this.anchorEntities[i];
@@ -265,6 +276,8 @@ AFRAME.registerComponent('mindar-image', {
       }
       },
     simThreshold: { type: 'number', default: -1 },
+    trackingMethod: {type: 'string', default: 'features'}, // 'features' (compiled .mind) or 'whiteBorder' (white contour quad)
+    targetRatios: {type: 'string', default: ''}, // whiteBorder only: comma-separated height/width ratio per target
     filterMinCF: {type: 'number', default: -1},
     filterBeta: {type: 'number', default: -1},
     missTolerance: {type: 'int', default: -1},
@@ -284,6 +297,8 @@ AFRAME.registerComponent('mindar-image', {
       maxTrack: this.data.maxTrack,
       frameDetection: this.data.frameDetection,
       simThreshold: this.data.simThreshold,
+      trackingMethod: this.data.trackingMethod,
+      targetRatios: this.data.targetRatios,
       filterMinCF: this.data.filterMinCF === -1? null: this.data.filterMinCF,
       filterBeta: this.data.filterBeta === -1? null: this.data.filterBeta,
       missTolerance: this.data.missTolerance === -1? null: this.data.missTolerance,
