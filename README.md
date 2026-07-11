@@ -295,6 +295,11 @@ and no worker are created; detection runs in a few ms per frame on the main thre
   (incl. large white zones) and background clutter (incl. an adversarial white strip) — runs
   the real pixel pipeline and asserts corner localization (≤2px), distance (≤5%) and rotation
   (≤2.5°) against ground truth, plus must-not-detect cases.
+- `node testing/white-border-camera.test.mjs` — **live camera mode**: renders the synthetic
+  scene to a Y4M video, feeds it to headless Chromium as a fake webcam
+  (`--use-file-for-fake-video-capture`) and drives the QA page's "Live camera" mode, checking
+  the real getUserMedia → video → canvas → tracker path against the scene's ground truth
+  (requires `playwright-core` and a Chromium binary, see `CHROMIUM_PATH`).
 - `testing/white-border-interactive.html` — **interactive QA page** (for humans and automated
   agents): sliders for position/rotation/tilt/scale/ratio/border/lighting/content/background,
   realtime overlay of ground truth (yellow), candidates (blue) and matched quad (green) with
