@@ -282,11 +282,26 @@ class Controller {
       while (true) {
 	if (!this.processingVideo) break;
 
-	const quadCandidates = this.whiteBorderTracker.findQuadCandidates(input);
-
 	const nTracking = this.trackingStates.reduce((acc, s) => {
 	  return acc + (!!s.isTracking? 1: 0);
 	}, 0);
+
+	// fast pass: while every wanted target is already tracked, only search the padded
+	// neighborhood of the previous frame's quads instead of the full frame; if the fast
+	// pass comes back empty (fast motion), fall back to a full-frame scan right away so
+	// it costs one extra pass instead of a miss
+	let quadCandidates;
+	const trackedCorners = this.trackingStates
+	  .filter((s) => s.isTracking && s.lastCorners !== null)
+	  .map((s) => s.lastCorners);
+	if (nTracking >= this.maxTrack && trackedCorners.length > 0) {
+	  quadCandidates = this.whiteBorderTracker.findQuadCandidates(input, this.whiteBorderTracker.roiAround(trackedCorners));
+	  if (quadCandidates.length === 0) {
+	    quadCandidates = this.whiteBorderTracker.findQuadCandidates(input);
+	  }
+	} else {
+	  quadCandidates = this.whiteBorderTracker.findQuadCandidates(input);
+	}
 
 	// detect and match only if less then maxTrack
 	if (quadCandidates.length > 0 && nTracking < this.maxTrack) {

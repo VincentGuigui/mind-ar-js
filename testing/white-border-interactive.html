@@ -253,6 +253,50 @@
       return update();
     };
 
+    // benchmark hook: time full-frame detection vs the ROI fast pass on the current
+    // synthetic frame, and verify both find the same quad. Used by white-border-bench.mjs.
+    window.__bench = (iterations = 200) => {
+      readUI();
+      const frame = renderFrame(params);
+      frameCtx.putImageData(new ImageData(frame.rgba, W, H), 0, 0);
+      if (!controller) controller = makeController(params.ratio);
+      const tracker = controller.whiteBorderTracker;
+
+      const time = (fn) => {
+        const times = [];
+        for (let i = 0; i < iterations; i++) {
+          const t0 = performance.now();
+          fn();
+          times.push(performance.now() - t0);
+        }
+        times.sort((a, b) => a - b);
+        const mean = times.reduce((a, b) => a + b, 0) / times.length;
+        return {mean: +mean.toFixed(2), p50: +times[iterations >> 1].toFixed(2), p90: +times[(iterations * 0.9) | 0].toFixed(2)};
+      };
+
+      // full pipeline as the controller runs it per frame
+      let fullResult = null;
+      const full = time(() => {
+        const cands = tracker.findQuadCandidates(frameCanvas);
+        fullResult = tracker.matchQuad(cands, [0]);
+      });
+      let roiResult = null;
+      const roi = fullResult && time(() => {
+        const r = tracker.roiAround([fullResult.corners]);
+        const cands = tracker.findQuadCandidates(frameCanvas, r);
+        roiResult = tracker.trackQuad(cands, 0, fullResult.corners);
+      });
+      // accuracy of each pass vs the synthetic ground truth (mean corner distance, px)
+      const gtErr = (corners) => corners === null ? null :
+        +(Math.min(...[0, 1, 2, 3].map((shift) =>
+          corners.reduce((sum, c, i) => {
+            const g = frame.groundTruth.corners[(i + 4 - shift) % 4];
+            return sum + Math.hypot(c.x - g.x, c.y - g.y);
+          }, 0) / 4))).toFixed(2);
+      return {iterations, fullMs: full, roiMs: roi, detected: !!fullResult,
+        fullErrPx: gtErr(fullResult && fullResult.corners), roiErrPx: gtErr(roiResult && roiResult.corners)};
+    };
+
     update();
     window.__ready = true;
   </script>

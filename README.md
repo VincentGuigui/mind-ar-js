@@ -270,13 +270,17 @@ and no worker are created; detection runs in a few ms per frame on the main thre
    90° corner-assignment ambiguity and rejects white regions whose aspect ratio doesn't
    match the declared target ratio.
 5. While tracking, the corner assignment is kept temporally consistent with the previous
-   frame.
+   frame, and the analysis runs as a **ROI fast pass**: only the padded neighborhood (+25%)
+   of the previous frame's quad is scanned (at up to `ROI_WORK_SIZE`), instead of the full
+   frame. If the fast pass loses the card (fast motion), the same frame immediately falls
+   back to a full-frame scan, so the cost is one extra pass rather than a tracking miss.
 
 ## Tuning constants (top of white-border-tracker.js)
 
 | Constant | Default | Meaning |
 |---|---|---|
-| `WORK_SIZE` | 480 | analysis resolution (largest side); higher = more precision, more CPU |
+| `WORK_SIZE` | 480 | full-frame analysis resolution (largest side); higher = more precision, more CPU |
+| `ROI_WORK_SIZE` | 320 | analysis resolution cap of the ROI tracking fast pass (the card fills most of the ROI, so this still samples the border denser than the full pass) |
 | `MIN_WHITE_LUMA` | 100 | absolute brightness floor for "white" (0-255) |
 | `WHITE_PERCENTILE` | 0.98 | reference percentile = "the whitest thing currently visible" |
 | `WHITE_RELATIVE` | 0.75 | white threshold = `max(MIN_WHITE_LUMA, percentile × WHITE_RELATIVE)`; raise (→0.85) if bright non-white surfaces pollute the mask, lower (→0.65) if the border drops out under uneven lighting |
@@ -300,6 +304,8 @@ and no worker are created; detection runs in a few ms per frame on the main thre
   (`--use-file-for-fake-video-capture`) and drives the QA page's "Live camera" mode, checking
   the real getUserMedia → video → canvas → tracker path against the scene's ground truth
   (requires `playwright-core` and a Chromium binary, see `CHROMIUM_PATH`).
+- `node testing/white-border-bench.mjs` — **performance benchmark** in real Chromium (full
+  canvas pipeline), full-frame vs ROI pass, at CPU throttle 1x/4x/6x to approximate phones.
 - `testing/white-border-interactive.html` — **interactive QA page** (for humans and automated
   agents): sliders for position/rotation/tilt/scale/ratio/border/lighting/content/background,
   realtime overlay of ground truth (yellow), candidates (blue) and matched quad (green) with
@@ -307,6 +313,23 @@ and no worker are created; detection runs in a few ms per frame on the main thre
   mode. Serve the repo root (`python3 -m http.server 8123`, after `npm run build`) and open
   `http://localhost:8123/testing/white-border-interactive.html`. For automation the page
   exposes `window.__setParams({...})` / `window.__lastResult`.
+
+## Performance
+
+Measured with `testing/white-border-bench.mjs` (real Chromium, full pipeline: `drawImage` +
+`getImageData` + mask + components + quad + pose, 480×270 analysis, mean of 200 frames).
+CPU throttling approximates phone-class CPUs:
+
+| Scenario | full-frame detection | ROI tracking pass |
+|---|---|---|
+| desktop-class (1×) | 2.4–3.0 ms | 0.5–2.0 ms |
+| ~mid-range phone (4×) | 12–13 ms | 2.3–9.1 ms |
+| ~low-end phone (6×) | 15–19.5 ms | 3.1–15.4 ms |
+
+The per-frame budget at 30 fps is 33 ms. Acquisition (full-frame, only while the card is not
+yet found) fits the budget even at 6×; once tracking, the ROI fast pass typically costs a few
+ms, leaving most of the frame budget to rendering. The pass runs on the main thread with no
+GPU/tfjs dependency, so it doesn't contend with three.js/A-Frame for the GPU.
 
 ## Limitations
 

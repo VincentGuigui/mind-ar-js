@@ -11,6 +11,9 @@ import {solveHomography} from './utils/homography.js';
 
 // analysis resolution: the camera frame is downscaled so that its largest side is WORK_SIZE
 const WORK_SIZE = 480;
+// the ROI fast pass (tracking) is analyzed at a lower cap: the card fills most of the ROI,
+// so 320 still samples the border denser than the full-frame pass while bounding the cost
+const ROI_WORK_SIZE = 320;
 // white threshold = max(MIN_WHITE_LUMA, WHITE_RELATIVE * <WHITE_PERCENTILE brightness>)
 // relative to the brightest pixels so that a non-pure white (camera exposure, warm
 // lighting, shadows) is still classified as white
@@ -40,20 +43,52 @@ class WhiteBorderTracker {
     this.workWidth = Math.max(1, Math.round(inputWidth * this.workScale));
     this.workHeight = Math.max(1, Math.round(inputHeight * this.workScale));
     this.canvas = document.createElement('canvas');
-    this.canvas.width = this.workWidth;
-    this.canvas.height = this.workHeight;
+    // square-capable canvas: an ROI (fast tracking pass) can be portrait even on a landscape input
+    this.canvas.width = Math.max(this.workWidth, ROI_WORK_SIZE);
+    this.canvas.height = Math.max(this.workHeight, ROI_WORK_SIZE);
     this.context = this.canvas.getContext('2d', {willReadFrequently: true});
+  }
+
+  // padded bounding box around previously tracked quads: the fast-pass search
+  // neighborhood for the next frame (in input coords)
+  roiAround(cornersList, padFrac = 0.25) {
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const corners of cornersList) {
+      for (const c of corners) {
+        if (c.x < minX) minX = c.x;
+        if (c.y < minY) minY = c.y;
+        if (c.x > maxX) maxX = c.x;
+        if (c.y > maxY) maxY = c.y;
+      }
+    }
+    const pad = padFrac * Math.max(maxX - minX, maxY - minY);
+    return {x: minX - pad, y: minY - pad, width: (maxX - minX) + 2 * pad, height: (maxY - minY) + 2 * pad};
   }
 
   // detect white-border quad candidates in the current frame.
   // returns an array (possibly empty) of 4-corner quads ordered clockwise
-  // (image coords, full input resolution), biggest first
-  findQuadCandidates(input) {
-    this.context.drawImage(input, 0, 0, this.workWidth, this.workHeight);
-    const {data} = this.context.getImageData(0, 0, this.workWidth, this.workHeight);
-    const mask = this._whiteMask(data);
-    const quads = this._quadComponents(mask);
-    return quads.map((quad) => quad.map((p) => ({x: p.x / this.workScale, y: p.y / this.workScale})));
+  // (image coords, full input resolution), biggest first.
+  // Passing an `roi` ({x, y, width, height} in input coords, from roiAround) restricts the
+  // analysis to that neighborhood — the fast tracking pass: fewer pixels to read and scan,
+  // and since the ROI is analyzed at up to WORK_SIZE too, precision even improves up close.
+  findQuadCandidates(input, roi = null) {
+    let sx = 0, sy = 0, sw = this.inputWidth, sh = this.inputHeight;
+    let scale = this.workScale, dw = this.workWidth, dh = this.workHeight;
+    if (roi !== null) {
+      sx = Math.max(0, Math.floor(roi.x));
+      sy = Math.max(0, Math.floor(roi.y));
+      sw = Math.min(this.inputWidth - sx, Math.ceil(roi.width));
+      sh = Math.min(this.inputHeight - sy, Math.ceil(roi.height));
+      if (sw < 8 || sh < 8) return [];
+      scale = Math.min(1, ROI_WORK_SIZE / Math.max(sw, sh));
+      dw = Math.max(1, Math.round(sw * scale));
+      dh = Math.max(1, Math.round(sh * scale));
+    }
+    this.context.drawImage(input, sx, sy, sw, sh, 0, 0, dw, dh);
+    const {data} = this.context.getImageData(0, 0, dw, dh);
+    const mask = this._whiteMask(data, dw, dh);
+    const quads = this._quadComponents(mask, dw, dh);
+    return quads.map((quad) => quad.map((p) => ({x: sx + p.x / scale, y: sy + p.y / scale})));
   }
 
   // initial detection: among the candidate quads, find which one matches a (non-tracked)
@@ -165,8 +200,8 @@ class WhiteBorderTracker {
 
   // build a binary mask of "white" pixels using an adaptive threshold:
   // brightness relative to the frame's brightest percentile + low chroma (near-grey)
-  _whiteMask(rgba) {
-    const n = this.workWidth * this.workHeight;
+  _whiteMask(rgba, width = this.workWidth, height = this.workHeight) {
+    const n = width * height;
     const brightness = new Uint8Array(n);
     const chroma = new Uint8Array(n);
     const histogram = new Uint32Array(256);
@@ -204,9 +239,7 @@ class WhiteBorderTracker {
   // (work coords, clockwise), biggest first — several white regions can coexist in the
   // frame (the card plus e.g. a white sheet of paper), the pose-quality gate picks the
   // one matching the target ratio
-  _quadComponents(mask) {
-    const width = this.workWidth;
-    const height = this.workHeight;
+  _quadComponents(mask, width = this.workWidth, height = this.workHeight) {
     const n = width * height;
     const minArea = n * MIN_COMPONENT_AREA_RATIO;
     const visited = new Uint8Array(n);
