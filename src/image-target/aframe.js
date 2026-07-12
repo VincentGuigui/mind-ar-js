@@ -15,13 +15,15 @@ AFRAME.registerSystem('mindar-image-system', {
 
     setup: function ({ imageTargetSrc, maxTrack, showStats, uiLoading, uiScanning, uiError,
         missTolerance, warmupTolerance, filterMinCF, filterBeta, frameDetection, simThreshold,
-        trackingMethod, targetRatios }) {
+        trackingMethod, targetRatios, maxFps, workerOffload }) {
     this.imageTargetSrc = imageTargetSrc;
     this.maxTrack = maxTrack;
     this.frameDetection = frameDetection;
     this.simThreshold = simThreshold;
     this.trackingMethod = trackingMethod;
     this.targetRatios = targetRatios;
+    this.maxFps = maxFps;
+    this.workerOffload = workerOffload;
     this.filterMinCF = filterMinCF;
     this.filterBeta = filterBeta;
     this.missTolerance = missTolerance;
@@ -162,6 +164,8 @@ AFRAME.registerSystem('mindar-image-system', {
       frameDetection: this.frameDetection,
       simThreshold: this.simThreshold,
       trackingMethod: this.trackingMethod,
+      maxFps: this.maxFps,
+      workerOffload: this.workerOffload,
       filterMinCF: this.filterMinCF,
       filterBeta: this.filterBeta,
       missTolerance: this.missTolerance,
@@ -278,6 +282,8 @@ AFRAME.registerComponent('mindar-image', {
     simThreshold: { type: 'number', default: -1 },
     trackingMethod: {type: 'string', default: 'features'}, // 'features' (compiled .mind) or 'whiteBorder' (white contour quad)
     targetRatios: {type: 'string', default: ''}, // whiteBorder only: comma-separated height/width ratio per target
+    maxFps: {type: 'number', default: -1}, // whiteBorder only: target tracking frame rate (default 30); runtime governor may throttle below it
+    workerOffload: {type: 'boolean', default: false}, // whiteBorder only: run the pixel stage in a worker (keeps the render thread free)
     filterMinCF: {type: 'number', default: -1},
     filterBeta: {type: 'number', default: -1},
     missTolerance: {type: 'int', default: -1},
@@ -299,6 +305,8 @@ AFRAME.registerComponent('mindar-image', {
       simThreshold: this.data.simThreshold,
       trackingMethod: this.data.trackingMethod,
       targetRatios: this.data.targetRatios,
+      maxFps: this.data.maxFps,
+      workerOffload: this.data.workerOffload,
       filterMinCF: this.data.filterMinCF === -1? null: this.data.filterMinCF,
       filterBeta: this.data.filterBeta === -1? null: this.data.filterBeta,
       missTolerance: this.data.missTolerance === -1? null: this.data.missTolerance,

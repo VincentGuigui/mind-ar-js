@@ -7,6 +7,8 @@ import {CropDetector} from './detector/crop-detector.js';
 import {Compiler} from './compiler.js';
 import {InputLoader} from './input-loader.js';
 import {WhiteBorderTracker} from './white-border-tracker.js';
+import WhiteBorderTrackerWorker from './white-border-tracker.worker.js?worker&inline';
+import {FpsGovernor} from './fps-governor.js';
 import {OneEuroFilter} from '../libs/one-euro-filter.js';
 
 const DEFAULT_FILTER_CUTOFF = 0.001; // 1Hz. time period in milliseconds
@@ -18,13 +20,17 @@ const DEFAULT_MISS_TOLERANCE = 5;
 const WHITE_BORDER_MARKER_WIDTH = 1000;
 const TRACKING_METHOD_FEATURES = 'features';
 const TRACKING_METHOD_WHITE_BORDER = 'whiteBorder';
+// default target frame rate of the white-border loop (see maxFps option / FpsGovernor)
+const DEFAULT_WHITE_BORDER_MAX_FPS = 30;
 
 class Controller {
   constructor({inputWidth, inputHeight, onUpdate=null, debugMode=false, maxTrack=1,
     warmupTolerance=null, missTolerance=null, filterMinCF=null, filterBeta=null,
       frameDetection = { top: 0, right: 0, bottom: 0, left: 0 },
       simThreshold = -1,
-      trackingMethod = TRACKING_METHOD_FEATURES
+      trackingMethod = TRACKING_METHOD_FEATURES,
+      maxFps = -1,
+      workerOffload = false
   }) {
 
     this.inputWidth = inputWidth;
@@ -34,6 +40,9 @@ class Controller {
     this.simThreshold = simThreshold;
     this.trackingMethod = trackingMethod;
     this.whiteBorderTracker = null;
+    this.maxFps = (maxFps === null || maxFps <= 0)? DEFAULT_WHITE_BORDER_MAX_FPS: maxFps;
+    this.workerOffload = workerOffload;
+    this.fpsGovernor = null; // created per processVideo run (whiteBorder mode)
     this.filterMinCF = filterMinCF === null? DEFAULT_FILTER_CUTOFF: filterMinCF;
     this.filterBeta = filterBeta === null? DEFAULT_FILTER_BETA: filterBeta;
     this.warmupTolerance = warmupTolerance === null? DEFAULT_WARMUP_TOLERANCE: warmupTolerance;
@@ -90,9 +99,15 @@ class Controller {
   // image ratios (height/width) are needed, the white contour provides the geometry
   addWhiteBorderTargets(ratios) {
     const dimensions = ratios.map((ratio) => [WHITE_BORDER_MARKER_WIDTH, Math.round(WHITE_BORDER_MARKER_WIDTH * ratio)]);
-    this.whiteBorderTracker = new WhiteBorderTracker(this.inputWidth, this.inputHeight, dimensions, this.projectionTransform, {debugMode: this.debugMode});
+    const worker = this.workerOffload? new WhiteBorderTrackerWorker(): null;
+    this.whiteBorderTracker = new WhiteBorderTracker(this.inputWidth, this.inputHeight, dimensions, this.projectionTransform, {debugMode: this.debugMode, worker});
     this.markerDimensions = dimensions;
     return {dimensions};
+  }
+
+  // current (possibly throttled) target frame rate of the white-border loop
+  getCurrentTargetFps() {
+    return this.fpsGovernor !== null? this.fpsGovernor.targetFps: this.maxFps;
   }
 
   showTFStats() {
@@ -142,6 +157,9 @@ class Controller {
 
   dispose() {
     this.stopProcessVideo();
+    if (this.whiteBorderTracker !== null) {
+      this.whiteBorderTracker.dispose();
+    }
     if (this.worker !== null) {
       this.worker.postMessage({
         type: "dispose"
@@ -274,13 +292,20 @@ class Controller {
     startProcessing();
   }
 
-  // white-border processing loop: one quad detection per frame (plain canvas pixels, no
-  // tfjs / worker), pose from the 4 corners; same trackingStates / warmup / miss / filter
-  // behavior as the feature loop
+  // white-border processing loop: one quad detection per frame (plain canvas pixels;
+  // pixel stage optionally in the offload worker), pose from the 4 corners; same
+  // trackingStates / warmup / miss / filter behavior as the feature loop.
+  // The loop is paced to maxFps and gracefully throttled by the FpsGovernor: when the
+  // device cannot sustain the target rate, the target drops by 1/6 of maxFps at a time
+  // (and climbs back when there is sustained headroom).
   _processVideoWhiteBorder(input) {
+    this.fpsGovernor = new FpsGovernor(this.maxFps);
+
     const startProcessing = async() => {
       while (true) {
 	if (!this.processingVideo) break;
+
+	const frameStart = performance.now();
 
 	const nTracking = this.trackingStates.reduce((acc, s) => {
 	  return acc + (!!s.isTracking? 1: 0);
@@ -295,12 +320,12 @@ class Controller {
 	  .filter((s) => s.isTracking && s.lastCorners !== null)
 	  .map((s) => s.lastCorners);
 	if (nTracking >= this.maxTrack && trackedCorners.length > 0) {
-	  quadCandidates = this.whiteBorderTracker.findQuadCandidates(input, this.whiteBorderTracker.roiAround(trackedCorners));
+	  quadCandidates = await this.whiteBorderTracker.findQuadCandidatesAsync(input, this.whiteBorderTracker.roiAround(trackedCorners));
 	  if (quadCandidates.length === 0) {
-	    quadCandidates = this.whiteBorderTracker.findQuadCandidates(input);
+	    quadCandidates = await this.whiteBorderTracker.findQuadCandidatesAsync(input);
 	  }
 	} else {
-	  quadCandidates = this.whiteBorderTracker.findQuadCandidates(input);
+	  quadCandidates = await this.whiteBorderTracker.findQuadCandidatesAsync(input);
 	}
 
 	// detect and match only if less then maxTrack
@@ -341,7 +366,20 @@ class Controller {
 	}
 
         this.onUpdate && this.onUpdate({type: 'processDone'});
-	await new Promise((resolve) => requestAnimationFrame(resolve));
+
+	// pace to the governed target fps: report this frame's busy time, then wait
+	// (in rAF ticks, so we never process more often than the display refreshes)
+	// until the frame budget has elapsed
+	const busyMs = performance.now() - frameStart;
+	const previousTargetFps = this.fpsGovernor.targetFps;
+	const targetFps = this.fpsGovernor.sample(busyMs);
+	if (targetFps !== previousTargetFps) {
+	  this.onUpdate && this.onUpdate({type: 'targetFpsChanged', targetFps});
+	}
+	const nextDue = frameStart + 1000 / targetFps;
+	do {
+	  await new Promise((resolve) => requestAnimationFrame(resolve));
+	} while (this.processingVideo && performance.now() < nextDue - 1); // -1ms: don't idle a whole extra rAF tick for a rounding sliver
       }
     }
     startProcessing();

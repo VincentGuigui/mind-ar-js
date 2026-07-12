@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html>
+<!--
+  Harness for the white-border Controller LOOP (processVideo): pacing (maxFps), the FpsGovernor
+  runtime throttling, and the workerOffload path — end to end.
+  A synthetic card scene is painted to a canvas every rAF; canvas.captureStream() acts as the
+  camera. Driven headlessly by white-border-loop.test.mjs via the window.__ hooks:
+      __ready                    true once loaded
+      __startLoop({maxFps, workerOffload, busyMs})  create a Controller and start processVideo;
+                                 busyMs > 0 burns CPU in onUpdate to simulate a heavy device
+      __stats()                  {updates, found, processDone, elapsedMs, currentTargetFps, fpsChanges}
+      __stopLoop()               stop and dispose
+-->
+<head><meta charset="utf-8" /><title>white-border loop harness</title></head>
+<body>
+  <canvas id="scene" width="480" height="270"></canvas>
+  <script type="module">
+    import {Controller} from '../dist/mindar-image.prod.js';
+    import {renderFrame} from './synthetic-frame.mjs';
+
+    const W = 480, H = 270;
+    const canvas = document.getElementById('scene');
+    const ctx = canvas.getContext('2d');
+    // static card pose, light sensor noise varying per frame
+    let frameIndex = 0;
+    const paint = () => {
+      const frame = renderFrame({width: W, height: H, rotZ: 20, tiltX: 10, noise: 5, seed: 2000 + (frameIndex++ % 10)});
+      ctx.putImageData(new ImageData(frame.rgba, W, H), 0, 0);
+      requestAnimationFrame(paint);
+    };
+    paint();
+
+    let controller = null, video = null, stats = null;
+
+    window.__startLoop = async ({maxFps = -1, workerOffload = false, busyMs = 0} = {}) => {
+      video = document.createElement('video');
+      video.muted = true;
+      video.srcObject = canvas.captureStream(30);
+      await video.play();
+      video.setAttribute('width', W);
+      video.setAttribute('height', H);
+
+      stats = {updates: 0, found: 0, processDone: 0, fpsChanges: [], start: performance.now()};
+      controller = new Controller({
+        inputWidth: W, inputHeight: H, trackingMethod: 'whiteBorder', maxFps, workerOffload,
+        onUpdate: (data) => {
+          if (data.type === 'processDone') {
+            stats.processDone++;
+            if (busyMs > 0) { // simulate a device that can't keep up (render load, slow CPU)
+              const until = performance.now() + busyMs;
+              while (performance.now() < until) { /* burn */ }
+            }
+          } else if (data.type === 'updateMatrix') {
+            stats.updates++;
+            if (data.worldMatrix !== null) stats.found++;
+          } else if (data.type === 'targetFpsChanged') {
+            stats.fpsChanges.push(data.targetFps);
+          }
+        },
+      });
+      controller.addWhiteBorderTargets([0.7]);
+      controller.processVideo(video);
+      return true;
+    };
+
+    window.__stats = () => ({
+      updates: stats.updates, found: stats.found, processDone: stats.processDone,
+      elapsedMs: performance.now() - stats.start,
+      currentTargetFps: controller.getCurrentTargetFps(),
+      fpsChanges: stats.fpsChanges,
+    });
+
+    window.__stopLoop = () => {
+      controller.stopProcessVideo();
+      controller.dispose();
+      video.srcObject.getTracks().forEach((t) => t.stop());
+      controller = null;
+      return true;
+    };
+
+    window.__ready = true;
+  </script>
+</body>
+</html>

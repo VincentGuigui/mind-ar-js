@@ -251,9 +251,24 @@ const controller = new Controller({inputWidth, inputHeight, trackingMethod: 'whi
 controller.addWhiteBorderTargets([0.7]); // ratios (height/width), one per target
 ```
 
+Additional whiteBorder-only options (same names on `mindar-image`, `MindARThree` and
+`Controller`):
+
+- `maxFps` (default 30) — target frame rate of the tracking loop. The loop is paced to it,
+  so tracking never burns more CPU than needed; the display/render loop is unaffected.
+- `workerOffload` (default false) — run the pixel stage (mask + components + quad) in a Web
+  Worker: a slow tracking frame then never blocks the main thread / 3D renderer. The canvas
+  readback stays on the main thread (the video element lives there).
+- **Runtime graceful throttling** (always on): a governor watches the measured per-frame
+  cost; when the device cannot sustain the current target, the target steps down by 1/6 of
+  `maxFps` at a time (30 → 25 → 20 → …, floor at `maxFps`/6) until sustainable, and climbs
+  back one step at a time when there is sustained headroom (with hysteresis, so it doesn't
+  oscillate). Each change emits `onUpdate({type: 'targetFpsChanged', targetFps})`, and
+  `controller.getCurrentTargetFps()` reports the current target.
+
 Everything downstream (anchors, targetFound/targetLost, one-euro smoothing, warmup/miss
 tolerances) behaves exactly like the feature tracker. In `whiteBorder` mode no tfjs pipeline
-and no worker are created; detection runs in a few ms per frame on the main thread.
+is created; detection runs in a few ms per frame.
 
 ## How it works (src/image-target/white-border-tracker.js)
 
@@ -304,6 +319,12 @@ and no worker are created; detection runs in a few ms per frame on the main thre
   (`--use-file-for-fake-video-capture`) and drives the QA page's "Live camera" mode, checking
   the real getUserMedia → video → canvas → tracker path against the scene's ground truth
   (requires `playwright-core` and a Chromium binary, see `CHROMIUM_PATH`).
+- `node testing/fps-governor.test.mjs` — unit tests of the graceful-throttling ladder
+  (drop by 1/6 rungs under overload, hysteresis, recovery, floor).
+- `node testing/white-border-loop.test.mjs` — **end-to-end loop test** in headless Chromium:
+  drives the real `Controller.processVideo` with a `canvas.captureStream()` camera and checks
+  `maxFps` pacing, the `workerOffload` path, and that an overloaded device (simulated busy
+  frames) is throttled down the 1/6 ladder while tracking keeps working.
 - `node testing/white-border-bench.mjs` — **performance benchmark** in real Chromium (full
   canvas pipeline), full-frame vs ROI pass, at CPU throttle 1x/4x/6x to approximate phones.
 - `testing/white-border-interactive.html` — **interactive QA page** (for humans and automated
@@ -328,8 +349,10 @@ CPU throttling approximates phone-class CPUs:
 
 The per-frame budget at 30 fps is 33 ms. Acquisition (full-frame, only while the card is not
 yet found) fits the budget even at 6×; once tracking, the ROI fast pass typically costs a few
-ms, leaving most of the frame budget to rendering. The pass runs on the main thread with no
-GPU/tfjs dependency, so it doesn't contend with three.js/A-Frame for the GPU.
+ms, leaving most of the frame budget to rendering. The pass has no GPU/tfjs dependency, so it
+doesn't contend with three.js/A-Frame for the GPU; with `workerOffload: true` it doesn't even
+touch the main thread, and if a device still can't keep up, the runtime governor lowers the
+tracking rate gracefully (see options above) instead of janking.
 
 ## Limitations
 

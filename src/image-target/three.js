@@ -15,7 +15,7 @@ export class MindARThree {
     container, imageTargetSrc, maxTrack, uiLoading = "yes", uiScanning = "yes", uiError = "yes",
     filterMinCF = null, filterBeta = null, warmupTolerance = null, missTolerance = null,
     userDeviceId = null, environmentDeviceId = null, frameDetection = {top: 0, right: 0, bottom: 0, left: 0},
-    trackingMethod = 'features', targetRatios = []
+    trackingMethod = 'features', targetRatios = [], maxFps = -1, workerOffload = false
   }) {
     this.container = container;
     this.imageTargetSrc = imageTargetSrc;
@@ -23,6 +23,8 @@ export class MindARThree {
     this.frameDetection = frameDetection;
     this.trackingMethod = trackingMethod;
     this.targetRatios = targetRatios;
+    this.maxFps = maxFps;
+    this.workerOffload = workerOffload;
     this.filterMinCF = filterMinCF;
     this.filterBeta = filterBeta;
     this.warmupTolerance = warmupTolerance;
@@ -157,6 +159,8 @@ export class MindARThree {
         maxTrack: this.maxTrack,
         frameDetection: this.frameDetection,
         trackingMethod: this.trackingMethod,
+        maxFps: this.maxFps,
+        workerOffload: this.workerOffload,
         onUpdate: (data) => {
           if (data.type === 'updateMatrix') {
             const { targetIndex, worldMatrix } = data;
