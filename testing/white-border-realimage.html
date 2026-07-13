@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html>
+<!--
+  Harness for the white-border REAL-IMAGE test (white-border-realimage.test.mjs): loads an
+  actual photo from testing/targets/ into a canvas at native resolution and runs the real
+  whiteBorder Controller pipeline on it. Exposes window.__detect(file, ratio) → the matched
+  quad (input coords) + all candidates, for the Node test to assert against ground truth.
+-->
+<head><meta charset="utf-8" /><title>white-border real-image harness</title></head>
+<body>
+  <canvas id="c"></canvas>
+  <script type="module">
+    import {Controller} from '../dist/mindar-image.prod.js';
+    const round = (q) => q.map((p) => ({x: Math.round(p.x), y: Math.round(p.y)}));
+    window.__detect = async (file, ratio) => {
+      const img = new Image(); img.src = 'targets/' + file; await img.decode();
+      const W = img.naturalWidth, H = img.naturalHeight;
+      const cv = document.getElementById('c'); cv.width = W; cv.height = H;
+      cv.getContext('2d').drawImage(img, 0, 0);
+      const c = new Controller({inputWidth: W, inputHeight: H, trackingMethod: 'whiteBorder'});
+      c.addWhiteBorderTargets([ratio]);
+      const t = c.whiteBorderTracker;
+      const candidates = t.findQuadCandidates(cv);
+      const match = t.matchQuad(candidates, [0]);
+      const result = {
+        W, H, nCandidates: candidates.length,
+        candidates: candidates.map(round),
+        matched: !!match,
+        corners: match ? round(match.corners) : null,
+        // camera-space Z (depth) of the recovered pose, sanity check it's in front
+        z: match ? match.modelViewTransform[2][3] : null,
+      };
+      c.dispose();
+      return result;
+    };
+    window.__ready = true;
+  </script>
+</body>
+</html>

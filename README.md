@@ -298,7 +298,7 @@ is created; detection runs in a few ms per frame.
 | `ROI_WORK_SIZE` | 320 | analysis resolution cap of the ROI tracking fast pass (the card fills most of the ROI, so this still samples the border denser than the full pass) |
 | `MIN_WHITE_LUMA` | 100 | absolute brightness floor for "white" (0-255) |
 | `WHITE_PERCENTILE` | 0.98 | reference percentile = "the whitest thing currently visible" |
-| `WHITE_RELATIVE` | 0.75 | white threshold = `max(MIN_WHITE_LUMA, percentile × WHITE_RELATIVE)`; raise (→0.85) if bright non-white surfaces pollute the mask, lower (→0.65) if the border drops out under uneven lighting |
+| `WHITE_RELATIVE` | 0.85 | white threshold = `max(MIN_WHITE_LUMA, percentile × WHITE_RELATIVE)`; raise (→0.9) if a bright background (hazy sky, sunlit walls) still pollutes the mask, lower (→0.7) if the border drops out under uneven lighting |
 | `MAX_CHROMA_RATIO` | 0.3 | a white pixel must be near-grey: `(max−min) ≤ ratio × brightness`; tolerates warm tints, rejects bright colors |
 | `MIN_COMPONENT_AREA_RATIO` | 0.01 | minimum white region size (fraction of the frame) |
 | `MIN_QUAD_FILL` | 0.85 | quad area / hull area: how quadrilateral a region must be |
@@ -314,6 +314,11 @@ is created; detection runs in a few ms per frame.
   (incl. large white zones) and background clutter (incl. an adversarial white strip) — runs
   the real pixel pipeline and asserts corner localization (≤2px), distance (≤5%) and rotation
   (≤2.5°) against ground truth, plus must-not-detect cases.
+- `node testing/white-border-realimage.test.mjs` — **real-photo test**: runs the pipeline on
+  `testing/targets/white_frame_postcard.jpg` (a hand holding a white-bordered postcard against a
+  bright, cluttered outdoor scene — the hard case where the background is nearly as white as the
+  border) and asserts the tracker locks onto the postcard's outer frame (not the sky) within a
+  few px of the hand-verified corners.
 - `node testing/white-border-camera.test.mjs` — **live camera mode**: renders the synthetic
   scene to a Y4M video, feeds it to headless Chromium as a fake webcam
   (`--use-file-for-fake-video-capture`) and drives the QA page's "Live camera" mode, checking

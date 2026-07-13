@@ -7,7 +7,7 @@
 // lighting, shadows) is still classified as white
 const MIN_WHITE_LUMA = 100;
 const WHITE_PERCENTILE = 0.98;
-const WHITE_RELATIVE = 0.75;
+const WHITE_RELATIVE = 0.85;
 // a white pixel must also be near-grey: chroma (max-min channel) below this fraction of brightness
 const MAX_CHROMA_RATIO = 0.3;
 // candidate white component must cover at least this fraction of the analysis frame
