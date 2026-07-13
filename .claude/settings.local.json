@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(Get-ChildItem \"$env:LOCALAPPDATA\\\\ms-playwright\" -Directory -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Name)",
+      "PowerShell(Get-ChildItem \"$env:LOCALAPPDATA\\\\ms-playwright\\\\chromium-1228\" -Recurse -Filter chrome.exe | Select-Object -ExpandProperty FullName)",
+      "PowerShell($env:CHROMIUM_PATH = \"$env:LOCALAPPDATA\\\\ms-playwright\\\\chromium-1228\\\\chrome-win64\\\\chrome.exe\"; node testing/white-border-realimage.test.mjs)"
+    ]
+  }
+}

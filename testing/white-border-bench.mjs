@@ -10,13 +10,16 @@
 // medium and a close-up card. Also asserts the ROI pass finds the same quad as the full pass.
 
 import {createServer} from 'http';
+import {existsSync} from 'fs';
 import {readFile} from 'fs/promises';
 import {extname, join, dirname} from 'path';
 import {fileURLToPath} from 'url';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
-const CHROMIUM = process.env.CHROMIUM_PATH || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
 const {chromium} = await import('playwright-core');
+const LINUX_CHROMIUM = '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
+const CHROMIUM = process.env.CHROMIUM_PATH ||
+  (existsSync(LINUX_CHROMIUM) ? LINUX_CHROMIUM : chromium.executablePath());
 
 const MIME = {'.html': 'text/html', '.js': 'application/javascript', '.mjs': 'application/javascript'};
 const server = createServer(async (req, res) => {

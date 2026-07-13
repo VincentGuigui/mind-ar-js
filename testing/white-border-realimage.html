@@ -1,27 +1,103 @@
 <!DOCTYPE html>
 <html>
 <!--
-  Harness for the white-border REAL-IMAGE test (white-border-realimage.test.mjs): loads an
-  actual photo from testing/targets/ into a canvas at native resolution and runs the real
+  Harness + visual QA page for the white-border REAL-IMAGE test (white-border-realimage.test.mjs):
+  loads an actual photo from testing/targets/ into a canvas at native resolution and runs the real
   whiteBorder Controller pipeline on it. Exposes window.__detect(file, ratio) → the matched
   quad (input coords) + all candidates, for the Node test to assert against ground truth.
+
+  Opened directly in a browser (serve the repo root over HTTP, after `npm run build`), it shows
+  the photo with overlays — ground truth (yellow), all candidates (blue), matched quad (green,
+  dot = corner 0) — plus an image picker, a ratio slider, and a live cursor readout in image
+  pixels (click to log a corner, e.g. to establish ground truth for a new photo).
 -->
-<head><meta charset="utf-8" /><title>white-border real-image harness</title></head>
+<head>
+  <meta charset="utf-8" />
+  <title>white-border real-image harness</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 16px; background: #1b1e24; color: #e8e8e8; }
+    h1 { font-size: 18px; }
+    #layout { display: flex; gap: 24px; flex-wrap: wrap; }
+    #view { position: relative; }
+    #view canvas { display: block; max-width: min(1024px, 90vw); height: auto; border: 1px solid #444; }
+    #overlay { position: absolute; left: 0; top: 0; pointer-events: none; }
+    #controls { min-width: 300px; max-width: 420px; }
+    .row { display: flex; align-items: center; gap: 8px; margin: 6px 0; }
+    .row label { width: 90px; font-size: 13px; }
+    .row input[type=range] { flex: 1; }
+    .row output { width: 48px; text-align: right; font-size: 12px; color: #9ecbff; }
+    select, button { background: #2a2f3a; color: #e8e8e8; border: 1px solid #555; border-radius: 4px; padding: 3px 8px; }
+    #metrics { margin-top: 12px; font-size: 14px; line-height: 1.6; white-space: pre-wrap; font-family: ui-monospace, monospace; }
+    .ok { color: #6fdc8c; } .bad { color: #ff8389; }
+    #cursor { font-size: 12px; color: #aaa; font-family: ui-monospace, monospace; }
+  </style>
+</head>
 <body>
-  <canvas id="c"></canvas>
+  <h1>White-border tracking — real-image QA</h1>
+  <div id="layout">
+    <div id="view">
+      <canvas id="c"></canvas>
+      <canvas id="overlay"></canvas>
+      <div id="cursor">cursor: —  (click to log a corner position)</div>
+      <div id="metrics">loading…</div>
+    </div>
+    <div id="controls">
+      <div class="row"><label>Image</label>
+        <select id="image">
+          <option>white_frame_postcard.jpg</option>
+          <option>white_frame_black.jpg</option>
+          <option>white_frame_black_rot.jpg</option>
+          <option>white_frame_with_cloud_contrast.jpg</option>
+          <option>white_frame_with_cloud_rot.jpg</option>
+          <option>white_frame_with_people_rot.jpg</option>
+          <option>frame_with_cloud.jpg</option>
+          <option>frame_with_cloud_rot.jpg</option>
+          <option>frame_with_dog.jpg</option>
+          <option>frame_with_people_rot.jpg</option>
+          <option>frame_with_squares.jpg</option>
+          <option>frame_with_squares_rot.jpg</option>
+          <option>frame_with_checker_white_rot.jpg</option>
+          <option>frame_rays_with_cloud.jpg</option>
+          <option>frame_rays_with_cloud_rot.jpg</option>
+          <option>frame_rays_tr_with_cloud.jpg</option>
+          <option>frame_rays_with_people.jpg</option>
+        </select>
+      </div>
+      <div class="row"><label>Ratio (h/w)</label><input type="range" id="ratio" min="0.4" max="1.6" step="0.01" value="0.62" /><output>0.62</output></div>
+      <div class="row"><span style="font-size:12px;color:#aaa">
+        <span style="color:#ffd166">yellow</span>=ground truth&nbsp;
+        <span style="color:#8888ff">blue</span>=candidates&nbsp;
+        <span style="color:#6fdc8c">green</span>=matched (dot = corner 0)</span>
+      </div>
+    </div>
+  </div>
+
   <script type="module">
     import {Controller} from '../dist/mindar-image.prod.js';
+
+    // hand-verified ground truth (image pixels, TL TR BR BL) — keep in sync with the GT in
+    // white-border-realimage.test.mjs; only images listed here get a yellow overlay
+    const GROUND_TRUTH = {
+      'white_frame_postcard.jpg': [{x: 372, y: 186}, {x: 708, y: 147}, {x: 680, y: 362}, {x: 396, y: 394}],
+    };
+
     const round = (q) => q.map((p) => ({x: Math.round(p.x), y: Math.round(p.y)}));
-    window.__detect = async (file, ratio) => {
+    const cv = document.getElementById('c');
+    const overlay = document.getElementById('overlay');
+
+    // core pipeline, shared by the headless test hook and the visual UI
+    const detect = async (file, ratio) => {
       const img = new Image(); img.src = 'targets/' + file; await img.decode();
       const W = img.naturalWidth, H = img.naturalHeight;
-      const cv = document.getElementById('c'); cv.width = W; cv.height = H;
+      cv.width = W; cv.height = H;
       cv.getContext('2d').drawImage(img, 0, 0);
       const c = new Controller({inputWidth: W, inputHeight: H, trackingMethod: 'whiteBorder'});
       c.addWhiteBorderTargets([ratio]);
       const t = c.whiteBorderTracker;
+      const t0 = performance.now();
       const candidates = t.findQuadCandidates(cv);
       const match = t.matchQuad(candidates, [0]);
+      const ms = performance.now() - t0;
       const result = {
         W, H, nCandidates: candidates.length,
         candidates: candidates.map(round),
@@ -29,10 +105,98 @@
         corners: match ? round(match.corners) : null,
         // camera-space Z (depth) of the recovered pose, sanity check it's in front
         z: match ? match.modelViewTransform[2][3] : null,
+        ms: +ms.toFixed(1),
       };
       c.dispose();
       return result;
     };
+    window.__detect = detect;
+
+    // ---- visual UI (inert under the headless test, which only calls window.__detect) ----
+    const imageSel = document.getElementById('image');
+    const ratioInput = document.getElementById('ratio');
+    const ratioOut = ratioInput.parentElement.querySelector('output');
+    const metricsEl = document.getElementById('metrics');
+    const cursorEl = document.getElementById('cursor');
+    const octx = overlay.getContext('2d');
+
+    const cyclicErrors = (got, gt) => {
+      // (mean, worst) corner distance over the best cyclic alignment — mirrors the node test
+      let bestMean = Infinity, bestWorst = Infinity;
+      for (let shift = 0; shift < 4; shift++) {
+        let sum = 0, worst = 0;
+        for (let i = 0; i < 4; i++) {
+          const d = Math.hypot(got[(i + shift) % 4].x - gt[i].x, got[(i + shift) % 4].y - gt[i].y);
+          sum += d; worst = Math.max(worst, d);
+        }
+        if (sum / 4 < bestMean) { bestMean = sum / 4; bestWorst = worst; }
+      }
+      return {mean: bestMean, worst: bestWorst};
+    };
+
+    const drawQuad = (corners, color, width, dotFirst) => {
+      octx.strokeStyle = color; octx.lineWidth = width;
+      octx.beginPath();
+      corners.forEach((p, i) => i === 0 ? octx.moveTo(p.x, p.y) : octx.lineTo(p.x, p.y));
+      octx.closePath(); octx.stroke();
+      if (dotFirst) {
+        octx.fillStyle = color;
+        octx.beginPath(); octx.arc(corners[0].x, corners[0].y, 6, 0, 7); octx.fill();
+      }
+    };
+
+    let running = false, pending = false;
+    const update = async () => {
+      if (running) { pending = true; return; }
+      running = true;
+      ratioOut.value = ratioInput.value;
+      const r = await detect(imageSel.value, parseFloat(ratioInput.value));
+      overlay.width = r.W; overlay.height = r.H;
+      octx.clearRect(0, 0, r.W, r.H);
+
+      const gt = GROUND_TRUTH[imageSel.value];
+      if (gt) drawQuad(gt, '#ffd166', 2, false);
+      r.candidates.forEach((q) => drawQuad(q, 'rgba(120,120,255,0.6)', 2, false));
+
+      const lines = [];
+      if (r.matched) {
+        drawQuad(r.corners, '#6fdc8c', 2.5, true);
+        lines.push(`<span class="ok">DETECTED</span>  (${r.ms} ms, ${r.nCandidates} candidate(s), ${r.W}×${r.H})`);
+        lines.push(`corners  ${r.corners.map((p) => `(${p.x},${p.y})`).join(' ')}`);
+        lines.push(`pose z  ${r.z.toFixed(0)} ${r.z > 0 ? '<span class="ok">(in front of camera)</span>' : '<span class="bad">(BEHIND camera)</span>'}`);
+        if (gt) {
+          const e = cyclicErrors(r.corners, gt);
+          const cls = (v, lim) => v <= lim ? 'ok' : 'bad';
+          lines.push(`corner error vs GT  mean <span class="${cls(e.mean, 22)}">${e.mean.toFixed(1)} px</span>, worst <span class="${cls(e.worst, 22)}">${e.worst.toFixed(1)} px</span>  (test tolerance 22 px)`);
+        }
+      } else {
+        lines.push(`<span class="bad">NOT DETECTED</span>  (${r.ms} ms, ${r.nCandidates} candidate(s), ${r.W}×${r.H})`);
+      }
+      if (!gt) lines.push('<span style="color:#aaa">no ground truth stored for this image — click corners to read positions</span>');
+      metricsEl.innerHTML = lines.join('\n');
+      running = false;
+      if (pending) { pending = false; update(); }
+    };
+
+    // cursor readout in image pixels (canvas is CSS-scaled)
+    const toImagePx = (ev) => {
+      const rect = cv.getBoundingClientRect();
+      return {x: Math.round((ev.clientX - rect.left) * cv.width / rect.width),
+              y: Math.round((ev.clientY - rect.top) * cv.height / rect.height)};
+    };
+    cv.addEventListener('mousemove', (ev) => {
+      const p = toImagePx(ev);
+      cursorEl.textContent = `cursor: ${p.x}, ${p.y}  (click to log a corner position)`;
+    });
+    cv.addEventListener('click', (ev) => {
+      const p = toImagePx(ev);
+      cursorEl.textContent = `corner logged: {x: ${p.x}, y: ${p.y}}  — also in the devtools console`;
+      console.log(`{x: ${p.x}, y: ${p.y}},`);
+    });
+
+    imageSel.addEventListener('change', update);
+    ratioInput.addEventListener('input', update);
+    update();
     window.__ready = true;
   </script>
 </body>

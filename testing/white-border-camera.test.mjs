@@ -8,7 +8,7 @@
 // mode then runs the real pipeline — getUserMedia → <video> → canvas drawImage → tracker —
 // and the detected corners are checked against the ground truth of the rendered scene.
 
-import {writeFileSync, mkdirSync} from 'fs';
+import {writeFileSync, mkdirSync, existsSync} from 'fs';
 import {createServer} from 'http';
 import {readFile} from 'fs/promises';
 import {extname, join, dirname} from 'path';
@@ -16,7 +16,6 @@ import {fileURLToPath} from 'url';
 import {renderFrame} from './synthetic-frame.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
-const CHROMIUM = process.env.CHROMIUM_PATH || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
 
 let chromium;
 try {
@@ -25,6 +24,10 @@ try {
   console.error('SKIP: playwright-core not installed (npm i --no-save --ignore-scripts playwright-core)');
   process.exit(1);
 }
+
+const LINUX_CHROMIUM = '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
+const CHROMIUM = process.env.CHROMIUM_PATH ||
+  (existsSync(LINUX_CHROMIUM) ? LINUX_CHROMIUM : chromium.executablePath());
 
 // ---- 1. render the fake webcam video (Y4M = uncompressed YUV420, natively supported) ------
 const W = 480, H = 270;
