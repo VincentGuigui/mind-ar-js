@@ -1,21 +1,200 @@
 <!DOCTYPE html>
 <html>
 <!--
-  Harness for the white-border REAL-IMAGE + SIGNATURE test. On the real postcard photo:
-   1. detect the white-frame quad (no signature) — baseline;
-   2. rectify that quad into a flat "authoring" target and compute the reference signature the
-      SAME way the creator would (window.MINDAR.WHITE_BORDER.computeSignatureFromImage);
-   3. re-run the tracker on the ORIGINAL photo WITH that reference signature (non-circular:
-      the reference is sampled from a rectified flat image, the match samples in perspective)
-      and with a WRONG signature (must be rejected);
-   4. draw the matched quad overlay for a screenshot.
-  Exposes window.__run(file, ratio, borderWidth) and window.__flatDataURL().
+  Harness + visual QA page for the white-border REAL-IMAGE + SIGNATURE test (white-border-realimage-signature.test.mjs):
+  exercises the full signature path on the real postcard photo: the reference signature is computed the
+  AUTHORING way (creator bundle) from a flat rectification of the detected quad, then the tracker matches
+  the ORIGINAL (perspective) photo against it. Exposes window.__run(...) and window.__flatDataURL().
 -->
-<head><meta charset="utf-8" /><title>white-border real-image + signature</title></head>
+<head>
+  <meta charset="utf-8" />
+  <title>white-border real-image + signature harness</title>
+  <style>
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      margin: 16px;
+      background: #1b1e24;
+      color: #e8e8e8;
+    }
+    h1 {
+      font-size: 18px;
+      margin-bottom: 16px;
+    }
+    #layout {
+      display: flex;
+      gap: 24px;
+      flex-wrap: wrap;
+    }
+    .panel {
+      background: #202430;
+      border-radius: 8px;
+      padding: 16px;
+      border: 1px solid #3a3f50;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    }
+    .panel-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: #9ecbff;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 12px;
+    }
+    #view-panel {
+      flex: 2;
+      min-width: 320px;
+    }
+    #view-panel canvas {
+      display: block;
+      max-width: 100%;
+      height: auto;
+      border: 1px solid #444;
+      border-radius: 4px;
+    }
+    #controls-panel {
+      flex: 1;
+      min-width: 300px;
+      max-width: 450px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    .flat-container {
+      display: flex;
+      gap: 12px;
+      justify-content: space-between;
+    }
+    .flat-box {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+    }
+    .flat-box span {
+      font-size: 11px;
+      color: #aaa;
+    }
+    .flat-box canvas {
+      max-width: 100%;
+      height: auto;
+      border: 1px solid #444;
+      border-radius: 4px;
+    }
+    .row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin: 6px 0;
+    }
+    .row label {
+      width: 120px;
+      font-size: 13px;
+    }
+    .row input[type=range] {
+      flex: 1;
+    }
+    .row output {
+      width: 48px;
+      text-align: right;
+      font-size: 12px;
+      color: #9ecbff;
+      font-family: ui-monospace, monospace;
+    }
+    select, button {
+      background: #2a2f3a;
+      color: #e8e8e8;
+      border: 1px solid #555;
+      border-radius: 4px;
+      padding: 4px 8px;
+      font-size: 13px;
+    }
+    #metrics {
+      margin-top: 12px;
+      font-size: 13px;
+      line-height: 1.6;
+      white-space: pre-wrap;
+      font-family: ui-monospace, monospace;
+      background: #151821;
+      padding: 12px;
+      border-radius: 6px;
+      border: 1px solid #2d313f;
+    }
+    .ok { color: #6fdc8c; }
+    .bad { color: #ff8389; }
+    .info { color: #9ecbff; }
+    #signature-display {
+      max-height: 70px;
+      overflow-y: auto;
+      font-size: 11px;
+      color: #a0a7b5;
+      background: #151821;
+      padding: 8px;
+      border-radius: 4px;
+      border: 1px solid #2d313f;
+      word-break: break-all;
+      font-family: ui-monospace, monospace;
+    }
+  </style>
+</head>
 <body>
-  <canvas id="c"></canvas>
-  <canvas id="flatsrc"></canvas>
-  <canvas id="flat"></canvas>
+  <h1>White-border tracking — real-image + signature QA</h1>
+  <div id="layout">
+    <div id="view-panel" class="panel">
+      <div class="panel-title">Camera Perspective View</div>
+      <canvas id="c"></canvas>
+      <div id="cursor" style="font-size: 12px; color: #aaa; font-family: ui-monospace, monospace; margin-top: 8px;">cursor: —  (click to log a corner position)</div>
+    </div>
+    
+    <div id="controls-panel" class="panel">
+      <div class="panel-title">Configuration & Outputs</div>
+      
+      <div class="flat-container">
+        <div class="flat-box">
+          <span>Flat Source (Padded)</span>
+          <canvas id="flatsrc"></canvas>
+        </div>
+        <div class="flat-box">
+          <span>Rectified Reference</span>
+          <canvas id="flat"></canvas>
+        </div>
+      </div>
+      
+      <div class="row">
+        <label>Perspective Image</label>
+        <select id="image">
+          <option>white_frame_postcard.jpg</option>
+        </select>
+      </div>
+      
+      <div class="row">
+        <label>Flat Image</label>
+        <select id="flatImage">
+          <option>white_frame_postcard_flat.jpg</option>
+        </select>
+      </div>
+      
+      <div class="row">
+        <label>Ratio (h/w)</label>
+        <input type="range" id="ratio" min="0.4" max="1.6" step="0.01" value="0.62" />
+        <output>0.62</output>
+      </div>
+
+      <div class="row">
+        <label>Border Width</label>
+        <input type="range" id="borderWidth" min="0.01" max="0.25" step="0.01" value="0.06" />
+        <output>0.06</output>
+      </div>
+      
+      <div>
+        <div style="font-size: 12px; margin-bottom: 4px; color: #aaa;">Computed Signature:</div>
+        <div id="signature-display">None</div>
+      </div>
+      
+      <div id="metrics">loading…</div>
+    </div>
+  </div>
+
   <script src="../dist/mindar-white-border.prod.js"></script>
   <script type="module">
     import {Controller} from '../dist/mindar-image.prod.js';
@@ -69,11 +248,41 @@
       return flat;
     };
 
+    const signatureDistance = (a, b) => {
+      if (!a || !b || a.length !== b.length) return Infinity;
+      let s = 0;
+      for (let i = 0; i < a.length; i++) s += Math.abs(a[i] - b[i]);
+      return s / a.length;
+    };
+
     const detect = (cv, ratio, borderWidth, signatures) => {
       const c = new Controller({inputWidth: cv.width, inputHeight: cv.height, trackingMethod: 'whiteBorder'});
       c.addWhiteBorderTargets([ratio], {borderWidth, signatures});
       const t = c.whiteBorderTracker;
       const cands = t.findQuadCandidates(cv);
+      
+      if (signatures) {
+        console.log("=== detect WITH signature ===");
+        console.log("Candidate quads found:", cands.length);
+        cands.forEach((corners, idx) => {
+          console.log(`Candidate ${idx}:`, JSON.stringify(corners));
+          for (let shift = 0; shift < 4; shift++) {
+            const shifted = t._shiftCorners(corners, shift);
+            const quality = t._quality(shifted, 0);
+            const upright = t._uprightScore(shifted);
+            const observed = t._observedSignature(shifted, 0);
+            let sigDist = null;
+            if (observed && signatures[0]) {
+              sigDist = signatureDistance(observed, Float64Array.from(signatures[0]));
+              if (shift === 0 && idx === 1) {
+                console.log("OBSERVED SIG FOR SHIFT 0:", JSON.stringify(Array.from(observed)));
+              }
+            }
+            console.log(`  Shift ${shift} - quality: ${quality.toFixed(3)}, upright: ${upright.toFixed(3)}, sigDist: ${sigDist ? sigDist.toFixed(2) : 'null'}`);
+          }
+        });
+      }
+
       const m = t.matchQuad(cands, [0]);
       const round = (q) => q.map((p) => ({x: Math.round(p.x), y: Math.round(p.y)}));
       const res = {matched: !!m, corners: m ? round(m.corners) : null, z: m ? m.modelViewTransform[2][3] : null, nCandidates: cands.length};
@@ -100,20 +309,60 @@
       return cv;
     };
 
+    const getCyclicError = (got, gt) => {
+      let best = Infinity;
+      for (let shift = 0; shift < 4; shift++) {
+        let worst = 0;
+        for (let i = 0; i < 4; i++) worst = Math.max(worst, Math.hypot(got[(i + shift) % 4].x - gt[i].x, got[(i + shift) % 4].y - gt[i].y));
+        best = Math.min(best, worst);
+      }
+      return best;
+    };
+
     // perspectiveFile: the camera view to track; flatFile: an independent flat photo/scan of the
     // SAME card, from which the reference signature is computed the authoring way.
     window.__run = async (perspectiveFile, flatFile, ratio, borderWidth) => {
+      // Sync UI elements if they exist
+      const imageSel = document.getElementById('image');
+      const flatImageSel = document.getElementById('flatImage');
+      const ratioInput = document.getElementById('ratio');
+      const ratioOut = ratioInput ? ratioInput.parentElement.querySelector('output') : null;
+      const borderInput = document.getElementById('borderWidth');
+      const borderOut = borderInput ? borderInput.parentElement.querySelector('output') : null;
+      const metricsEl = document.getElementById('metrics');
+      const signatureDisplay = document.getElementById('signature-display');
+
+      if (imageSel) imageSel.value = perspectiveFile;
+      if (flatImageSel) flatImageSel.value = flatFile;
+      if (ratioInput) {
+        ratioInput.value = ratio;
+        if (ratioOut) ratioOut.value = ratio;
+      }
+      if (borderInput) {
+        borderInput.value = borderWidth;
+        if (borderOut) borderOut.value = borderWidth;
+      }
+      if (metricsEl) {
+        metricsEl.innerHTML = '<span class="info">Running pipeline...</span>';
+      }
+
       const cv = await loadCanvas(perspectiveFile, 'c');
 
       // 1. baseline detection (no signature) on the perspective photo — locates the quad
       const baseline = detect(cv, ratio, borderWidth, null);
-      if (!baseline.matched) return {baseline};
+      if (!baseline.matched) {
+        if (metricsEl) metricsEl.innerHTML = `<span class="bad">BASELINE DETECT FAILED</span>`;
+        return {baseline};
+      }
 
       // 2. reference from the INDEPENDENT flat target: detect its card quad, rectify to a clean
       //    flat image, then fingerprint it the AUTHORING way (creator bundle). Fully non-circular.
       const flatCv = await loadPadded(flatFile, 'flatsrc', 0.12);
       const flatDet = detect(flatCv, ratio, borderWidth, null);
-      if (!flatDet.matched) return {baseline, flatDetected: false};
+      if (!flatDet.matched) {
+        if (metricsEl) metricsEl.innerHTML = `Baseline: <span class="ok">DETECTED</span>\nFlat target: <span class="bad">NOT DETECTED</span>`;
+        return {baseline, flatDetected: false};
+      }
       const FW = 360, FH = Math.round(FW * ratio);
       const flat = rectify(flatCv, flatDet.corners, FW, FH);
       const reference = window.MINDAR.WHITE_BORDER.computeSignatureFromImage(flat, borderWidth);
@@ -132,9 +381,89 @@
         ctx.closePath(); ctx.stroke();
         withSig.corners.forEach((p, i) => { ctx.fillStyle = ['#ff0', '#f0f', '#0ff', '#f00'][i]; ctx.beginPath(); ctx.arc(p.x, p.y, 8, 0, 7); ctx.fill(); });
       }
+
+      // Update UI with results
+      if (metricsEl) {
+        const lines = [];
+        lines.push(`Baseline detection: ${baseline.matched ? '<span class="ok">DETECTED</span>' : '<span class="bad">FAILED</span>'}`);
+        lines.push(`Flat target detection: <span class="ok">DETECTED</span>`);
+        lines.push(`Signature size: ${reference.length} values`);
+        if (signatureDisplay) {
+          signatureDisplay.textContent = '[' + reference.map(v => v.toFixed(0)).join(', ') + ']';
+        }
+        
+        lines.push(`With correct signature: ${withSig.matched ? '<span class="ok">DETECTED</span>' : '<span class="bad">FAILED</span>'}`);
+        if (withSig.matched) {
+          lines.push(`  - candidates: ${withSig.nCandidates}`);
+          lines.push(`  - pose z: ${withSig.z.toFixed(1)} ${withSig.z > 0 ? '<span class="ok">(in front)</span>' : '<span class="bad">(behind)</span>'}`);
+          
+          if (perspectiveFile === 'white_frame_postcard.jpg') {
+            const GT = [{x: 372, y: 186}, {x: 708, y: 147}, {x: 680, y: 362}, {x: 396, y: 394}];
+            const err = getCyclicError(withSig.corners, GT);
+            const cls = err <= 24 ? 'ok' : 'bad';
+            lines.push(`  - worst error vs GT: <span class="${cls}">${err.toFixed(1)} px</span> (tolerance 24 px)`);
+          }
+        }
+        lines.push(`With WRONG signature: ${wrongSig.matched ? '<span class="bad">DETECTED (False Positive!)</span>' : '<span class="ok">REJECTED (Correct)</span>'}`);
+        
+        metricsEl.innerHTML = lines.join('\n');
+      }
+
       return {W: cv.width, H: cv.height, reference, baseline, withSig, wrongSig, flatDetected: true};
     };
+
     window.__flatDataURL = () => document.getElementById('flat').toDataURL();
+
+    // cursor readout in image pixels (canvas is CSS-scaled)
+    const cv = document.getElementById('c');
+    const cursorEl = document.getElementById('cursor');
+    const toImagePx = (ev) => {
+      const rect = cv.getBoundingClientRect();
+      return {
+        x: Math.round((ev.clientX - rect.left) * cv.width / rect.width),
+        y: Math.round((ev.clientY - rect.top) * cv.height / rect.height)
+      };
+    };
+    cv.addEventListener('mousemove', (ev) => {
+      const p = toImagePx(ev);
+      cursorEl.textContent = `cursor: ${p.x}, ${p.y}  (click to log a corner position)`;
+    });
+    cv.addEventListener('click', (ev) => {
+      const p = toImagePx(ev);
+      cursorEl.textContent = `corner logged: {x: ${p.x}, y: ${p.y}}  — also in the devtools console`;
+      console.log(`{x: ${p.x}, y: ${p.y}},`);
+    });
+
+    let running = false, pending = false;
+    const update = async () => {
+      if (running) { pending = true; return; }
+      running = true;
+      const file = document.getElementById('image').value;
+      const flatFile = document.getElementById('flatImage').value;
+      const ratio = parseFloat(document.getElementById('ratio').value);
+      const borderWidth = parseFloat(document.getElementById('borderWidth').value);
+      
+      try {
+        await window.__run(file, flatFile, ratio, borderWidth);
+      } catch (err) {
+        console.error(err);
+      }
+      running = false;
+      if (pending) { pending = false; update(); }
+    };
+
+    document.getElementById('image').addEventListener('change', update);
+    document.getElementById('flatImage').addEventListener('change', update);
+    document.getElementById('ratio').addEventListener('input', () => {
+      document.getElementById('ratio').parentElement.querySelector('output').value = document.getElementById('ratio').value;
+      update();
+    });
+    document.getElementById('borderWidth').addEventListener('input', () => {
+      document.getElementById('borderWidth').parentElement.querySelector('output').value = document.getElementById('borderWidth').value;
+      update();
+    });
+
+    await update();
     window.__ready = true;
   </script>
 </body>

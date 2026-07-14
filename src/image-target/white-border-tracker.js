@@ -28,7 +28,7 @@ const DEFAULT_BORDER_WIDTH = 0.06;
 // zone-signature acceptance threshold (mean abs channel diff, 0..255): above this the
 // candidate is rejected as a false positive. Correct matches score in the low single digits
 // even under camera lighting; a 180deg-wrong orientation or a different card score ~30+.
-const SIGNATURE_MAX_DISTANCE = 22;
+const SIGNATURE_MAX_DISTANCE = 35;
 
 class WhiteBorderTracker {
   // `worker` (optional): a Worker running white-border-tracker.worker.js, created by the
