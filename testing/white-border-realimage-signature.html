@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html>
+<!--
+  Harness for the white-border REAL-IMAGE + SIGNATURE test. On the real postcard photo:
+   1. detect the white-frame quad (no signature) — baseline;
+   2. rectify that quad into a flat "authoring" target and compute the reference signature the
+      SAME way the creator would (window.MINDAR.WHITE_BORDER.computeSignatureFromImage);
+   3. re-run the tracker on the ORIGINAL photo WITH that reference signature (non-circular:
+      the reference is sampled from a rectified flat image, the match samples in perspective)
+      and with a WRONG signature (must be rejected);
+   4. draw the matched quad overlay for a screenshot.
+  Exposes window.__run(file, ratio, borderWidth) and window.__flatDataURL().
+-->
+<head><meta charset="utf-8" /><title>white-border real-image + signature</title></head>
+<body>
+  <canvas id="c"></canvas>
+  <canvas id="flat"></canvas>
+  <script src="../dist/mindar-white-border.prod.js"></script>
+  <script type="module">
+    import {Controller} from '../dist/mindar-image.prod.js';
+
+    // minimal 4-point homography solve (getPerspectiveTransform): src[4] -> dst[4], row-major 3x3
+    const solveH = (src, dst) => {
+      const A = [], b = [];
+      for (let i = 0; i < 4; i++) {
+        const [x, y] = src[i], [u, v] = dst[i];
+        A.push([x, y, 1, 0, 0, 0, -u * x, -u * y]); b.push(u);
+        A.push([0, 0, 0, x, y, 1, -v * x, -v * y]); b.push(v);
+      }
+      // Gaussian elimination on the 8x8 system
+      for (let col = 0; col < 8; col++) {
+        let piv = col;
+        for (let r = col + 1; r < 8; r++) if (Math.abs(A[r][col]) > Math.abs(A[piv][col])) piv = r;
+        [A[col], A[piv]] = [A[piv], A[col]]; [b[col], b[piv]] = [b[piv], b[col]];
+        for (let r = 0; r < 8; r++) {
+          if (r === col) continue;
+          const f = A[r][col] / A[col][col];
+          for (let k = col; k < 8; k++) A[r][k] -= f * A[col][k];
+          b[r] -= f * b[col];
+        }
+      }
+      const h = b.map((v, i) => v / A[i][i]);
+      return [h[0], h[1], h[2], h[3], h[4], h[5], h[6], h[7], 1];
+    };
+
+    // rectify the perspective quad (screen corners TL,TR,BR,BL) into a flat FW x FH canvas
+    const rectify = (srcCanvas, corners, FW, FH) => {
+      const flat = document.getElementById('flat'); flat.width = FW; flat.height = FH;
+      const fctx = flat.getContext('2d');
+      const H = solveH([[0, 0], [FW, 0], [FW, FH], [0, FH]], corners.map((c) => [c.x, c.y]));
+      const src = srcCanvas.getContext('2d').getImageData(0, 0, srcCanvas.width, srcCanvas.height).data;
+      const sw = srcCanvas.width, sh = srcCanvas.height;
+      const out = fctx.createImageData(FW, FH);
+      for (let oy = 0; oy < FH; oy++) {
+        for (let ox = 0; ox < FW; ox++) {
+          const x = H[0] * ox + H[1] * oy + H[2];
+          const y = H[3] * ox + H[4] * oy + H[5];
+          const w = H[6] * ox + H[7] * oy + H[8];
+          const sx = Math.round(x / w), sy = Math.round(y / w);
+          const o = (oy * FW + ox) * 4;
+          if (sx >= 0 && sy >= 0 && sx < sw && sy < sh) {
+            const so = (sy * sw + sx) * 4;
+            out.data[o] = src[so]; out.data[o + 1] = src[so + 1]; out.data[o + 2] = src[so + 2]; out.data[o + 3] = 255;
+          } else { out.data[o + 3] = 255; }
+        }
+      }
+      fctx.putImageData(out, 0, 0);
+      return flat;
+    };
+
+    const detect = (cv, ratio, borderWidth, signatures) => {
+      const c = new Controller({inputWidth: cv.width, inputHeight: cv.height, trackingMethod: 'whiteBorder'});
+      c.addWhiteBorderTargets([ratio], {borderWidth, signatures});
+      const t = c.whiteBorderTracker;
+      const cands = t.findQuadCandidates(cv);
+      const m = t.matchQuad(cands, [0]);
+      const round = (q) => q.map((p) => ({x: Math.round(p.x), y: Math.round(p.y)}));
+      const res = {matched: !!m, corners: m ? round(m.corners) : null, z: m ? m.modelViewTransform[2][3] : null, nCandidates: cands.length};
+      c.dispose();
+      return res;
+    };
+
+    window.__run = async (file, ratio, borderWidth) => {
+      const img = new Image(); img.src = 'targets/' + file; await img.decode();
+      const cv = document.getElementById('c'); cv.width = img.naturalWidth; cv.height = img.naturalHeight;
+      cv.getContext('2d').drawImage(img, 0, 0);
+
+      // 1. baseline detection (no signature) to locate the quad
+      const baseline = detect(cv, ratio, borderWidth, null);
+      if (!baseline.matched) return {baseline};
+
+      // 2. rectify the detected quad -> flat target, compute the reference signature the
+      //    AUTHORING way (creator bundle). Flat size keeps the card ratio.
+      const FW = 360, FH = Math.round(FW * ratio);
+      const flat = rectify(cv, baseline.corners, FW, FH);
+      const reference = window.MINDAR.WHITE_BORDER.computeSignatureFromImage(flat, borderWidth);
+
+      // 3a. match WITH the correct reference signature
+      const withSig = detect(cv, ratio, borderWidth, [reference]);
+      // 3b. match with a WRONG signature (color-inverted: a clearly different "card")
+      const wrong = reference.map((v) => 255 - v);
+      const wrongSig = detect(cv, ratio, borderWidth, [wrong]);
+
+      // 4. overlay the WITH-signature match on the photo
+      if (withSig.matched) {
+        const ctx = cv.getContext('2d');
+        ctx.strokeStyle = '#39ff14'; ctx.lineWidth = 4; ctx.beginPath();
+        withSig.corners.forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y));
+        ctx.closePath(); ctx.stroke();
+        withSig.corners.forEach((p, i) => { ctx.fillStyle = ['#ff0', '#f0f', '#0ff', '#f00'][i]; ctx.beginPath(); ctx.arc(p.x, p.y, 8, 0, 7); ctx.fill(); });
+      }
+      return {W: cv.width, H: cv.height, reference, baseline, withSig, wrongSig};
+    };
+    window.__flatDataURL = () => document.getElementById('flat').toDataURL();
+    window.__ready = true;
+  </script>
+</body>
+</html>
