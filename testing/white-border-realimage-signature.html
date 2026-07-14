@@ -14,6 +14,7 @@
 <head><meta charset="utf-8" /><title>white-border real-image + signature</title></head>
 <body>
   <canvas id="c"></canvas>
+  <canvas id="flatsrc"></canvas>
   <canvas id="flat"></canvas>
   <script src="../dist/mindar-white-border.prod.js"></script>
   <script type="module">
@@ -80,19 +81,41 @@
       return res;
     };
 
-    window.__run = async (file, ratio, borderWidth) => {
+    const loadCanvas = async (file, canvasId) => {
       const img = new Image(); img.src = 'targets/' + file; await img.decode();
-      const cv = document.getElementById('c'); cv.width = img.naturalWidth; cv.height = img.naturalHeight;
+      const cv = document.getElementById(canvasId); cv.width = img.naturalWidth; cv.height = img.naturalHeight;
       cv.getContext('2d').drawImage(img, 0, 0);
+      return cv;
+    };
 
-      // 1. baseline detection (no signature) to locate the quad
+    // load with a dark margin so a card that fills the frame edge-to-edge still has a detectable
+    // white-border ring (a real authoring/composed target is edge-to-edge; a hand photo isn't)
+    const loadPadded = async (file, canvasId, pad) => {
+      const img = new Image(); img.src = 'targets/' + file; await img.decode();
+      const iw = img.naturalWidth, ih = img.naturalHeight;
+      const px = Math.round(iw * pad), py = Math.round(ih * pad);
+      const cv = document.getElementById(canvasId); cv.width = iw + 2 * px; cv.height = ih + 2 * py;
+      const ctx = cv.getContext('2d'); ctx.fillStyle = '#202020'; ctx.fillRect(0, 0, cv.width, cv.height);
+      ctx.drawImage(img, px, py, iw, ih);
+      return cv;
+    };
+
+    // perspectiveFile: the camera view to track; flatFile: an independent flat photo/scan of the
+    // SAME card, from which the reference signature is computed the authoring way.
+    window.__run = async (perspectiveFile, flatFile, ratio, borderWidth) => {
+      const cv = await loadCanvas(perspectiveFile, 'c');
+
+      // 1. baseline detection (no signature) on the perspective photo — locates the quad
       const baseline = detect(cv, ratio, borderWidth, null);
       if (!baseline.matched) return {baseline};
 
-      // 2. rectify the detected quad -> flat target, compute the reference signature the
-      //    AUTHORING way (creator bundle). Flat size keeps the card ratio.
+      // 2. reference from the INDEPENDENT flat target: detect its card quad, rectify to a clean
+      //    flat image, then fingerprint it the AUTHORING way (creator bundle). Fully non-circular.
+      const flatCv = await loadPadded(flatFile, 'flatsrc', 0.12);
+      const flatDet = detect(flatCv, ratio, borderWidth, null);
+      if (!flatDet.matched) return {baseline, flatDetected: false};
       const FW = 360, FH = Math.round(FW * ratio);
-      const flat = rectify(cv, baseline.corners, FW, FH);
+      const flat = rectify(flatCv, flatDet.corners, FW, FH);
       const reference = window.MINDAR.WHITE_BORDER.computeSignatureFromImage(flat, borderWidth);
 
       // 3a. match WITH the correct reference signature
@@ -109,7 +132,7 @@
         ctx.closePath(); ctx.stroke();
         withSig.corners.forEach((p, i) => { ctx.fillStyle = ['#ff0', '#f0f', '#0ff', '#f00'][i]; ctx.beginPath(); ctx.arc(p.x, p.y, 8, 0, 7); ctx.fill(); });
       }
-      return {W: cv.width, H: cv.height, reference, baseline, withSig, wrongSig};
+      return {W: cv.width, H: cv.height, reference, baseline, withSig, wrongSig, flatDetected: true};
     };
     window.__flatDataURL = () => document.getElementById('flat').toDataURL();
     window.__ready = true;

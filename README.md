@@ -346,10 +346,11 @@ target image — one canonical signature definition, no per-app duplication.
 - `node testing/white-border-signature.test.mjs` — content-signature unit test: correct-match
   + orientation under tilt/warm/dim/noise, 180deg re-orientation, false-positive rejection.
 - `node testing/white-border-realimage-signature.test.mjs` — **real photo + content signature**:
-  rectifies the detected postcard quad into a flat target, computes the reference signature the
-  authoring way (`MINDAR.WHITE_BORDER.computeSignatureFromImage`), then matches the original
-  perspective photo against it — asserts the correct card is accepted and oriented, and a
-  colour-inverted (wrong) signature is rejected; writes the tracking overlay to `testing/.tmp/`.
+  computes the reference signature the authoring way (`MINDAR.WHITE_BORDER.computeSignatureFromImage`)
+  from an INDEPENDENT flat photo of the card (`white_frame_postcard_flat.jpg`, detected + rectified),
+  then matches the separate perspective photo against it — asserts the correct card is accepted and
+  oriented, and a colour-inverted (wrong) signature is rejected; writes the tracking overlay +
+  rectified flat reference to `testing/.tmp/`.
 - `node testing/white-border-realimage.test.mjs` — **real-photo test**: runs the pipeline on
   `testing/targets/white_frame_postcard.jpg` (a hand holding a white-bordered postcard against a
   bright, cluttered outdoor scene — the hard case where the background is nearly as white as the

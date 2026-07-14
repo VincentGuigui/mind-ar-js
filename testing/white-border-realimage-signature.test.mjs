@@ -59,10 +59,13 @@ const worstCornerError = (got) => {
 const orientedCorrectly = (got) =>
   Math.hypot(got[0].x - GT[0].x, got[0].y - GT[0].y) < Math.hypot(got[0].x - GT[2].x, got[0].y - GT[2].y);
 
-const r = await page.evaluate(([b]) => window.__run('white_frame_postcard.jpg', 0.62, b), [BORDER]);
+// reference comes from an INDEPENDENT flat photo of the same card (white_frame_postcard_flat.jpg),
+// the match runs on the perspective photo (white_frame_postcard.jpg) — two different images.
+const r = await page.evaluate(([b]) => window.__run('white_frame_postcard.jpg', 'white_frame_postcard_flat.jpg', 0.62, b), [BORDER]);
 
 check('baseline (no signature) locates the postcard frame', r.baseline && r.baseline.matched);
-check('reference signature computed via the authoring bundle (27 numbers)', Array.isArray(r.reference) && r.reference.length === 27);
+check('the independent flat target was detected + rectified for fingerprinting', r.flatDetected === true);
+check('reference signature computed via the authoring bundle from the flat target (27 numbers)', Array.isArray(r.reference) && r.reference.length === 27);
 check('WITH correct signature: still matched on the real photo', r.withSig && r.withSig.matched,
   r.withSig ? `${r.withSig.nCandidates} candidates` : 'no result');
 if (r.withSig && r.withSig.matched) {
