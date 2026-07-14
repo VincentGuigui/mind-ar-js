@@ -74,11 +74,33 @@ const imageAframeConfig=defineConfig({
     }
 })
 
+// tiny standalone IIFE exposing window.MINDAR.WHITE_BORDER (signature helpers) for authoring
+// tools; no tfjs/three, so it's a few KB — the creator loads this instead of duplicating the CV
+const whiteBorderSignatureConfig=defineConfig({
+    mode: 'production',
+    build: {
+        outDir: outDir,
+        emptyOutDir:false,
+        lib: {
+            name:"MINDAR_WHITE_BORDER",
+            fileName:"[name].prod",
+            entry:'./src/image-target/white-border-signature-global.js',
+            formats:['iife'],
+        },
+        rollupOptions:{
+            input:{
+                'mindar-white-border': './src/image-target/white-border-signature-global.js'
+            }
+        }
+    }
+})
+
 export default defineConfig(async ({ command, mode }) => {
     await fs.rm(outDir,{recursive:true,force:true});
     if (command === 'build') {
         await build(imageAframeConfig);
         await build(faceAframeConfig);
+        await build(whiteBorderSignatureConfig);
         const files=await fs.readdir(outDir);
         //rename the aframe builds
         await Promise.all(files.map(async (filename)=>{

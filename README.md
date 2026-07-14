@@ -314,6 +314,11 @@ positive. Tracking (ROI fast pass) is unchanged — the signature is an acquisit
 Pass reference signatures via `targetSignatures` (one 27-number array per target); when a
 target has none, behavior is exactly as before (ratio + upright heuristic).
 
+Authoring tools compute the reference with the **same** implementation via a tiny standalone
+bundle (`dist/mindar-white-border.prod.js`, no tfjs/three, ~2KB): load it and call
+`window.MINDAR.WHITE_BORDER.computeSignatureFromImage(canvasOrImage, borderWidth)` on the flat
+target image — one canonical signature definition, no per-app duplication.
+
 ## Tuning constants (top of white-border-tracker.js)
 
 | Constant | Default | Meaning |
