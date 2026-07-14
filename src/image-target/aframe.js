@@ -15,7 +15,7 @@ AFRAME.registerSystem('mindar-image-system', {
 
     setup: function ({ imageTargetSrc, maxTrack, showStats, uiLoading, uiScanning, uiError,
         missTolerance, warmupTolerance, filterMinCF, filterBeta, frameDetection, simThreshold,
-        trackingMethod, targetRatios, maxFps, workerOffload }) {
+        trackingMethod, targetRatios, maxFps, workerOffload, borderWidth, targetSignatures }) {
     this.imageTargetSrc = imageTargetSrc;
     this.maxTrack = maxTrack;
     this.frameDetection = frameDetection;
@@ -24,6 +24,8 @@ AFRAME.registerSystem('mindar-image-system', {
     this.targetRatios = targetRatios;
     this.maxFps = maxFps;
     this.workerOffload = workerOffload;
+    this.borderWidth = borderWidth;
+    this.targetSignatures = targetSignatures;
     this.filterMinCF = filterMinCF;
     this.filterBeta = filterBeta;
     this.missTolerance = missTolerance;
@@ -202,7 +204,13 @@ AFRAME.registerSystem('mindar-image-system', {
     if (this.trackingMethod === 'whiteBorder') {
       // no .mind file in white-border mode: targets are declared by their expected ratios (height/width)
       const ratios = this.targetRatios.split(',').map((r) => parseFloat(r)).filter((r) => !isNaN(r) && r > 0);
-      ({dimensions: imageTargetDimensions} = this.controller.addWhiteBorderTargets(ratios));
+      // targetSignatures: JSON array (one 27-number array per target); '' when unused
+      let signatures = null;
+      if (this.targetSignatures) {
+        try { signatures = JSON.parse(this.targetSignatures); } catch (e) { console.warn('mindar-image: invalid targetSignatures JSON', e); }
+      }
+      const borderWidth = this.borderWidth > 0 ? this.borderWidth : undefined;
+      ({dimensions: imageTargetDimensions} = this.controller.addWhiteBorderTargets(ratios, {borderWidth, signatures}));
     } else {
       ({dimensions: imageTargetDimensions} = await this.controller.addImageTargets(this.imageTargetSrc));
     }
@@ -284,6 +292,8 @@ AFRAME.registerComponent('mindar-image', {
     targetRatios: {type: 'string', default: ''}, // whiteBorder only: comma-separated height/width ratio per target
     maxFps: {type: 'number', default: -1}, // whiteBorder only: target tracking frame rate (default 30); runtime governor may throttle below it
     workerOffload: {type: 'boolean', default: false}, // whiteBorder only: run the pixel stage in a worker (keeps the render thread free)
+    borderWidth: {type: 'number', default: -1}, // whiteBorder only: white-frame thickness as a fraction of the card side (<=0 = default)
+    targetSignatures: {type: 'string', default: ''}, // whiteBorder only: JSON array of 27-number content signatures, one per target
     filterMinCF: {type: 'number', default: -1},
     filterBeta: {type: 'number', default: -1},
     missTolerance: {type: 'int', default: -1},
@@ -307,6 +317,8 @@ AFRAME.registerComponent('mindar-image', {
       targetRatios: this.data.targetRatios,
       maxFps: this.data.maxFps,
       workerOffload: this.data.workerOffload,
+      borderWidth: this.data.borderWidth,
+      targetSignatures: this.data.targetSignatures,
       filterMinCF: this.data.filterMinCF === -1? null: this.data.filterMinCF,
       filterBeta: this.data.filterBeta === -1? null: this.data.filterBeta,
       missTolerance: this.data.missTolerance === -1? null: this.data.missTolerance,

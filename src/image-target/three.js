@@ -15,7 +15,7 @@ export class MindARThree {
     container, imageTargetSrc, maxTrack, uiLoading = "yes", uiScanning = "yes", uiError = "yes",
     filterMinCF = null, filterBeta = null, warmupTolerance = null, missTolerance = null,
     userDeviceId = null, environmentDeviceId = null, frameDetection = {top: 0, right: 0, bottom: 0, left: 0},
-    trackingMethod = 'features', targetRatios = [], maxFps = -1, workerOffload = false
+    trackingMethod = 'features', targetRatios = [], maxFps = -1, workerOffload = false, borderWidth, targetSignatures = null
   }) {
     this.container = container;
     this.imageTargetSrc = imageTargetSrc;
@@ -25,6 +25,8 @@ export class MindARThree {
     this.targetRatios = targetRatios;
     this.maxFps = maxFps;
     this.workerOffload = workerOffload;
+    this.borderWidth = borderWidth;
+    this.targetSignatures = targetSignatures;
     this.filterMinCF = filterMinCF;
     this.filterBeta = filterBeta;
     this.warmupTolerance = warmupTolerance;
@@ -224,7 +226,7 @@ export class MindARThree {
       let imageTargetDimensions;
       if (this.trackingMethod === 'whiteBorder') {
         // no .mind file in white-border mode: targets are declared by their expected ratios (height/width)
-        ({ dimensions: imageTargetDimensions } = this.controller.addWhiteBorderTargets(this.targetRatios));
+        ({ dimensions: imageTargetDimensions } = this.controller.addWhiteBorderTargets(this.targetRatios, {borderWidth: this.borderWidth, signatures: this.targetSignatures}));
       } else {
         ({ dimensions: imageTargetDimensions } = await this.controller.addImageTargets(this.imageTargetSrc));
       }

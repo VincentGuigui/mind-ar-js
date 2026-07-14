@@ -256,6 +256,10 @@ Additional whiteBorder-only options (same names on `mindar-image`, `MindARThree`
 
 - `maxFps` (default 30) — target frame rate of the tracking loop. The loop is paced to it,
   so tracking never burns more CPU than needed; the display/render loop is unaffected.
+- `borderWidth` (default 0.06) — white-frame thickness as a fraction of the card side. Only
+  needed when `targetSignatures` is used (it locates the content rect inside the border).
+- `targetSignatures` — optional content fingerprint per target (see **Content signature**
+  below): rejects false positives and resolves the border's orientation ambiguity.
 - `workerOffload` (default false) — run the pixel stage (mask + components + quad) in a Web
   Worker: a slow tracking frame then never blocks the main thread / 3D renderer. The canvas
   readback stays on the main thread (the video element lives there).
@@ -290,6 +294,26 @@ is created; detection runs in a few ms per frame.
    frame. If the fast pass loses the card (fast motion), the same frame immediately falls
    back to a full-frame scan, so the cost is one extra pass rather than a tracking miss.
 
+## Content signature (optional false-positive / orientation guard)
+
+A plain white rectangle carries no identity and is 180deg-symmetric, so ratio+pose alone
+can (a) accept a blank sheet of paper or a different card of the same ratio, and (b) lock the
+content upside-down. An optional **9-zone content signature** fixes both.
+
+The signature is 27 numbers: a 3x3 grid of average interior colors (row-major TL, T, TR, L,
+M, R, BL, B, BR), each RGB normalized so the observed **border white maps to 255** — the
+white frame acts as a built-in white-balance/exposure reference, which cancels camera lighting
+almost entirely. It is computed identically at authoring time (from the flat target image) and
+at run time (from the camera image through the detected quad's homography); the canonical
+sampler is `white-border-signature.js` (`computeSignature(sample, borderWidth)` +
+`signatureDistance`). At acquisition, each candidate orientation that passes the ratio gate is
+scored against the reference; the closest wins (resolving 180deg / near-square 90deg), and a
+best distance above `SIGNATURE_MAX_DISTANCE` (mean abs channel diff) is rejected as a false
+positive. Tracking (ROI fast pass) is unchanged — the signature is an acquisition-time guard.
+
+Pass reference signatures via `targetSignatures` (one 27-number array per target); when a
+target has none, behavior is exactly as before (ratio + upright heuristic).
+
 ## Tuning constants (top of white-border-tracker.js)
 
 | Constant | Default | Meaning |
@@ -314,6 +338,8 @@ is created; detection runs in a few ms per frame.
   (incl. large white zones) and background clutter (incl. an adversarial white strip) — runs
   the real pixel pipeline and asserts corner localization (≤2px), distance (≤5%) and rotation
   (≤2.5°) against ground truth, plus must-not-detect cases.
+- `node testing/white-border-signature.test.mjs` — content-signature unit test: correct-match
+  + orientation under tilt/warm/dim/noise, 180deg re-orientation, false-positive rejection.
 - `node testing/white-border-realimage.test.mjs` — **real-photo test**: runs the pipeline on
   `testing/targets/white_frame_postcard.jpg` (a hand holding a white-bordered postcard against a
   bright, cluttered outdoor scene — the hard case where the background is nearly as white as the

@@ -96,11 +96,15 @@ class Controller {
   }
 
   // register white-border targets without any compiled (.mind) data: only the expected
-  // image ratios (height/width) are needed, the white contour provides the geometry
-  addWhiteBorderTargets(ratios) {
+  // image ratios (height/width) are needed, the white contour provides the geometry.
+  // options.borderWidth (fraction of the card side) and options.signatures (27-number
+  // content fingerprint per target) are optional and enable false-positive rejection +
+  // orientation disambiguation (see WhiteBorderTracker).
+  addWhiteBorderTargets(ratios, {borderWidth, signatures} = {}) {
     const dimensions = ratios.map((ratio) => [WHITE_BORDER_MARKER_WIDTH, Math.round(WHITE_BORDER_MARKER_WIDTH * ratio)]);
     const worker = this.workerOffload? new WhiteBorderTrackerWorker(): null;
-    this.whiteBorderTracker = new WhiteBorderTracker(this.inputWidth, this.inputHeight, dimensions, this.projectionTransform, {debugMode: this.debugMode, worker});
+    this.whiteBorderTracker = new WhiteBorderTracker(this.inputWidth, this.inputHeight, dimensions, this.projectionTransform,
+      {debugMode: this.debugMode, worker, borderWidth, signatures});
     this.markerDimensions = dimensions;
     return {dimensions};
   }
