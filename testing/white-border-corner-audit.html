@@ -1,0 +1,62 @@
+<!doctype html><html><!-- harness for white-border-corner-audit.mjs: magnified corner crops + white-mask overlay --><body>
+<canvas id=c></canvas><canvas id=crop></canvas><canvas id=maskov></canvas>
+<script type="module">
+import {Controller} from '../dist/mindar-image.prod.js';
+window.__setup = async (file, ratio) => {
+  const img=new Image();img.src='targets/'+file;await img.decode();
+  const cv=document.getElementById('c');cv.width=img.naturalWidth;cv.height=img.naturalHeight;
+  cv.getContext('2d').drawImage(img,0,0);
+  const c=new Controller({inputWidth:cv.width,inputHeight:cv.height,trackingMethod:'whiteBorder'});
+  c.addWhiteBorderTargets([ratio]);
+  const t=c.whiteBorderTracker;
+  const cands=t.findQuadCandidates(cv);
+  const m=t.matchQuad(cands,[0]);
+  window.__t=t; window.__cv=cv;
+  window.__corners=m?m.corners:null;
+  return {corners:m?m.corners.map(p=>({x:+p.x.toFixed(1),y:+p.y.toFixed(1)})):null};
+};
+// magnified crop around (cx,cy): size src px, zoom x, crosshair at exact detected pos,
+// plus fine grid every 5 src px to measure offsets
+window.__crop = (cx, cy, size, zoom) => {
+  const cv=window.__cv;
+  const crop=document.getElementById('crop');crop.width=size*zoom;crop.height=size*zoom;
+  const ctx=crop.getContext('2d');ctx.imageSmoothingEnabled=false;
+  const x0=Math.round(cx-size/2), y0=Math.round(cy-size/2);
+  ctx.drawImage(cv,x0,y0,size,size,0,0,size*zoom,size*zoom);
+  // grid every 5 src px
+  ctx.strokeStyle='rgba(0,128,255,0.35)';ctx.lineWidth=1;
+  for(let g=0;g<=size;g+=5){ctx.beginPath();ctx.moveTo(g*zoom,0);ctx.lineTo(g*zoom,size*zoom);ctx.stroke();
+    ctx.beginPath();ctx.moveTo(0,g*zoom);ctx.lineTo(size*zoom,g*zoom);ctx.stroke();}
+  // crosshair at detected corner
+  const px=(cx-x0)*zoom, py=(cy-y0)*zoom;
+  ctx.strokeStyle='#ff0000';ctx.lineWidth=2;
+  ctx.beginPath();ctx.moveTo(px-18,py);ctx.lineTo(px+18,py);ctx.stroke();
+  ctx.beginPath();ctx.moveTo(px,py-18);ctx.lineTo(px,py+18);ctx.stroke();
+  return true;
+};
+// white-mask overlay (red) on the photo region around the card, 1.5x — shows what the
+// detector's threshold classified as white at ANALYSIS resolution (WORK_SIZE)
+window.__maskOverlay = (x0,y0,w,h,zoom) => {
+  const cv=window.__cv, t=window.__t;
+  // reproduce the full-frame analysis view exactly like findQuadCandidates does
+  const view=t._readAnalysisPixels(cv,null);
+  const {whiteMaskWidth}=0;
+  const mask=t._whiteMask(view.data,view.dw,view.dh);
+  const ov=document.getElementById('maskov');ov.width=w*zoom;ov.height=h*zoom;
+  const ctx=ov.getContext('2d');ctx.imageSmoothingEnabled=false;
+  ctx.drawImage(cv,x0,y0,w,h,0,0,w*zoom,h*zoom);
+  ctx.fillStyle='rgba(255,0,0,0.45)';
+  for(let ay=0;ay<view.dh;ay++)for(let ax=0;ax<view.dw;ax++){
+    if(!mask[ay*view.dw+ax])continue;
+    const sx=ax/view.scale, sy=ay/view.scale; // input coords
+    if(sx<x0||sy<y0||sx>=x0+w||sy>=y0+h)continue;
+    ctx.fillRect((sx-x0)*zoom,(sy-y0)*zoom,zoom/view.scale,zoom/view.scale);
+  }
+  // detected quad in green
+  if(window.__corners){ctx.strokeStyle='#39ff14';ctx.lineWidth=2;ctx.beginPath();
+    window.__corners.forEach((p,i)=>i?ctx.lineTo((p.x-x0)*zoom,(p.y-y0)*zoom):ctx.moveTo((p.x-x0)*zoom,(p.y-y0)*zoom));
+    ctx.closePath();ctx.stroke();}
+  return true;
+};
+window.__ready=true;
+</script></body></html>
