@@ -43,8 +43,9 @@ const check = (name, cond, detail) => {
   if (!cond) failures++;
 };
 
-// same postcard, same hand-verified outer white-frame corners (TL, TR, BR, BL), ratio ~0.62
-const GT = [{x: 372, y: 186}, {x: 708, y: 147}, {x: 680, y: 362}, {x: 396, y: 394}];
+// same postcard, outer white-frame corners (TL, TR, BR, BL), ratio ~0.62 — measured
+// independently off magnified coordinate-grid crops of the photo (~+-3px), not the overlay
+const GT = [{x: 378, y: 184}, {x: 650, y: 163}, {x: 675, y: 360}, {x: 400, y: 390}];
 const BORDER = 0.06;
 const worstCornerError = (got) => {
   let best = Infinity;
@@ -69,7 +70,7 @@ check('reference signature computed via the authoring bundle from the flat targe
 check('WITH correct signature: still matched on the real photo', r.withSig && r.withSig.matched,
   r.withSig ? `${r.withSig.nCandidates} candidates` : 'no result');
 if (r.withSig && r.withSig.matched) {
-  check(`WITH signature: lands on the postcard frame (worst ${worstCornerError(r.withSig.corners).toFixed(1)}px)`, worstCornerError(r.withSig.corners) <= 24);
+  check(`WITH signature: lands on the postcard frame (worst ${worstCornerError(r.withSig.corners).toFixed(1)}px)`, worstCornerError(r.withSig.corners) <= 12);
   check('WITH signature: correct orientation (corner 0 at true top-left, not 180deg-flipped)', orientedCorrectly(r.withSig.corners));
   check('WITH signature: pose in front of the camera (z > 0)', r.withSig.z > 0);
 }

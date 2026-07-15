@@ -1,7 +1,7 @@
 import {Matrix, inverse} from 'ml-matrix';
 import {Estimator} from './estimation/estimator.js';
 import {solveHomography} from './utils/homography.js';
-import {whiteMask, quadComponents} from './white-border-pixels.js';
+import {whiteMask, strictWhiteMask, quadComponents} from './white-border-pixels.js';
 import {computeSignature, signatureDistance} from './white-border-signature.js';
 
 // Alternative tracking system: instead of matching pre-compiled (.mind) image features,
@@ -110,7 +110,8 @@ class WhiteBorderTracker {
     const view = this._readAnalysisPixels(input, roi);
     if (view === null) return [];
     const mask = whiteMask(view.data, view.dw, view.dh);
-    const quads = quadComponents(mask, view.dw, view.dh);
+    const strict = strictWhiteMask(view.data, view.dw, view.dh);
+    const quads = quadComponents(mask, view.dw, view.dh, strict);
     return this._toInputCoords(quads, view);
   }
 

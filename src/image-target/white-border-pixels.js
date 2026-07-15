@@ -15,6 +15,21 @@ const MIN_COMPONENT_AREA_RATIO = 0.01;
 // quad area / convex hull area: how "quadrilateral" the white region must be
 const MIN_QUAD_FILL = 0.85;
 
+// strict "core-white" mask, used only to snap the quad EDGES to the true frame boundary
+// (not for discovery). The physical white frame is near-pure-white everywhere — very high
+// luminance, almost no chroma — whereas even a bright hazy background keeps some chroma or
+// falls short of pure white. Discovery still runs on the loose mask above (robust to warm/
+// dim light); this just pulls the sub-pixel edges off any bright-background bleed.
+const STRICT_MIN_LUMA = 235;
+const STRICT_RELATIVE = 0.95;
+const STRICT_MAX_CHROMA_RATIO = 0.08;
+// edge snap: how far (analysis px) to search inward from the coarse edge for the strict frame
+// boundary, how many consecutive strict pixels confirm the frame band (reject speckle), and
+// the minimum boundary points an edge needs before we trust the snapped line over the loose fit
+const REFINE_BAND = 48;
+const REFINE_RUN = 3;
+const REFINE_MIN_POINTS = 8;
+
 // build a binary mask of "white" pixels using an adaptive threshold:
 // brightness relative to the frame's brightest percentile + low chroma (near-grey)
 const whiteMask = (rgba, width, height) => {
@@ -52,11 +67,39 @@ const whiteMask = (rgba, width, height) => {
   return mask;
 };
 
+// build the strict "core-white" mask (see STRICT_* constants): near-pure-white pixels only,
+// used by the edge-snap in refineCorners. Same adaptive-brightness idea as whiteMask but a
+// much tighter luminance floor and chroma cap, so bright low-contrast background is excluded.
+const strictWhiteMask = (rgba, width, height) => {
+  const n = width * height;
+  const histogram = new Uint32Array(256);
+  for (let i = 0; i < n; i++) {
+    histogram[Math.max(rgba[i * 4], rgba[i * 4 + 1], rgba[i * 4 + 2])]++;
+  }
+  let count = 0;
+  let percentileBrightness = 255;
+  const percentileTarget = n * WHITE_PERCENTILE;
+  for (let v = 0; v < 256; v++) {
+    count += histogram[v];
+    if (count >= percentileTarget) { percentileBrightness = v; break; }
+  }
+  const threshold = Math.max(STRICT_MIN_LUMA, percentileBrightness * STRICT_RELATIVE);
+  const mask = new Uint8Array(n);
+  for (let i = 0; i < n; i++) {
+    const r = rgba[i * 4], g = rgba[i * 4 + 1], b = rgba[i * 4 + 2];
+    const max = Math.max(r, g, b);
+    if (max >= threshold && (max - Math.min(r, g, b)) <= STRICT_MAX_CHROMA_RATIO * max) {
+      mask[i] = 1;
+    }
+  }
+  return mask;
+};
+
 // find connected white components, keep quad-like ones, return their corner quads
 // (analysis coords, clockwise), biggest first — several white regions can coexist in the
 // frame (the card plus e.g. a white sheet of paper), the pose-quality gate picks the
 // one matching the target ratio
-const quadComponents = (mask, width, height) => {
+const quadComponents = (mask, width, height, strictMask = null) => {
   const n = width * height;
   const minArea = n * MIN_COMPONENT_AREA_RATIO;
   const visited = new Uint8Array(n);
@@ -107,7 +150,7 @@ const quadComponents = (mask, width, height) => {
     const onBorder = quad.filter(([x, y]) => x <= 1 || y <= 1 || x >= width - 2 || y >= height - 2);
     if (onBorder.length === 4) continue;
 
-    candidates.push({area: quadArea, corners: orderClockwise(refineCorners(hull, quad))});
+    candidates.push({area: quadArea, corners: orderClockwise(refineCorners(hull, quad, strictMask, width, height))});
   }
 
   candidates.sort((a, b) => b.area - a.area);
@@ -169,11 +212,17 @@ const polygonArea = (polygon) => {
   return area / 2;
 };
 
-// sub-pixel corner refinement: fit a total-least-squares line to the hull points of each
-// quad edge and intersect adjacent lines (hull corners are quantized to the analysis grid)
-const refineCorners = (hull, quad) => {
+// sub-pixel corner refinement: fit a line to each quad edge and intersect adjacent lines
+// (hull corners are quantized to the analysis grid). Each edge line is, in order of
+// preference: (1) snapped to the strict core-white frame boundary when a strict mask is
+// supplied and enough boundary points are found — this pulls the edge off any bright-
+// background bleed that the loose mask merged into the frame; otherwise (2) a robust
+// trimmed fit of the loose hull points along that edge.
+const refineCorners = (hull, quad, strictMask = null, width = 0, height = 0) => {
   const cornerIndexes = quad.map((corner) => hull.findIndex((p) => p === corner));
   if (cornerIndexes.includes(-1)) return quad;
+  const centerX = (quad[0][0] + quad[1][0] + quad[2][0] + quad[3][0]) / 4;
+  const centerY = (quad[0][1] + quad[1][1] + quad[2][1] + quad[3][1]) / 4;
   const lines = [];
   for (let i = 0; i < 4; i++) {
     const from = cornerIndexes[i];
@@ -183,7 +232,13 @@ const refineCorners = (hull, quad) => {
       edgePoints.push(hull[j]);
       if (j === to) break;
     }
-    lines.push(fitLineRobust(edgePoints));
+    const looseLine = fitLineRobust(edgePoints);
+    let line = looseLine;
+    if (strictMask !== null) {
+      const snapped = snapEdgeToStrict(quad[i], quad[(i + 1) % 4], centerX, centerY, strictMask, width, height);
+      if (snapped !== null) line = snapped;
+    }
+    lines.push(line);
   }
   const refined = [];
   for (let i = 0; i < 4; i++) {
@@ -191,6 +246,50 @@ const refineCorners = (hull, quad) => {
     refined.push(intersection !== null ? intersection : quad[i]);
   }
   return refined;
+};
+
+// walk along the coarse edge a->b and, at each step, search inward (toward the quad centre)
+// for the first run of REFINE_RUN consecutive strict-white pixels: that run's outer pixel is
+// a point on the true frame boundary. Robust-fit a line to those points; the few samples that
+// latch onto bright background near a corner become residual outliers and are trimmed. Returns
+// null (caller keeps the loose fit) when too few boundary points are found — e.g. a genuinely
+// off-white/warm frame that leaves the strict mask empty along this edge.
+const snapEdgeToStrict = (a, b, centerX, centerY, strictMask, width, height) => {
+  const ex = b[0] - a[0];
+  const ey = b[1] - a[1];
+  const edgeLen = Math.hypot(ex, ey);
+  if (edgeLen < 1) return null;
+  // inward unit normal (perpendicular to the edge, pointing toward the quad centre)
+  let nx = -ey / edgeLen;
+  let ny = ex / edgeLen;
+  const midX = (a[0] + b[0]) / 2;
+  const midY = (a[1] + b[1]) / 2;
+  if (nx * (centerX - midX) + ny * (centerY - midY) < 0) { nx = -nx; ny = -ny; }
+  const samples = Math.max(2, Math.round(edgeLen));
+  const boundary = [];
+  for (let s = 0; s <= samples; s++) {
+    const t = s / samples;
+    const px = a[0] + ex * t;
+    const py = a[1] + ey * t;
+    let run = 0;
+    for (let d = 0; d <= REFINE_BAND; d++) {
+      const qx = Math.round(px + nx * d);
+      const qy = Math.round(py + ny * d);
+      if (qx < 0 || qy < 0 || qx >= width || qy >= height) break;
+      if (strictMask[qy * width + qx] === 1) {
+        run++;
+        if (run >= REFINE_RUN) {
+          const outer = d - REFINE_RUN + 1; // outer pixel of the confirmed strict run
+          boundary.push([px + nx * outer, py + ny * outer]);
+          break;
+        }
+      } else {
+        run = 0;
+      }
+    }
+  }
+  if (boundary.length < REFINE_MIN_POINTS) return null;
+  return fitLineRobust(boundary);
 };
 
 // total least squares line fit, returns {px, py, dx, dy} (point + unit direction)
@@ -268,5 +367,6 @@ const orderClockwise = (quad) => {
 
 export {
   whiteMask,
+  strictWhiteMask,
   quadComponents,
 }

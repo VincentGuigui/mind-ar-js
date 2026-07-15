@@ -43,10 +43,12 @@ const check = (name, cond, detail) => {
   if (!cond) failures++;
 };
 
-// Ground truth: outer corners of the postcard's white frame, in image pixels (1024x559),
-// read off the photo and confirmed by the detector overlay. Order TL, TR, BR, BL.
-const GT = [{x: 372, y: 186}, {x: 708, y: 147}, {x: 680, y: 362}, {x: 396, y: 394}];
-const TOL = 22; // px; the frame edge is a few px thick and JPEG-soft, so allow a small slack
+// Ground truth: outer corners of the postcard's white frame, in image pixels (1024x559).
+// Measured INDEPENDENTLY of the detector — read off magnified 8x coordinate-grid crops of the
+// photo at each corner (not from the detector's own overlay, which would be circular). Order
+// TL, TR, BR, BL. Grid-reading uncertainty is ~+-3px.
+const GT = [{x: 378, y: 184}, {x: 650, y: 163}, {x: 675, y: 360}, {x: 400, y: 390}];
+const TOL = 12; // px; grid-read GT (+-3px) + a few-px-thick, JPEG-soft frame edge + jitter
 
 // mean corner distance over the best cyclic alignment (rotation-invariant)
 const cornerError = (got) => {
