@@ -183,7 +183,7 @@ const refineCorners = (hull, quad) => {
       edgePoints.push(hull[j]);
       if (j === to) break;
     }
-    lines.push(fitLine(edgePoints));
+    lines.push(fitLineRobust(edgePoints));
   }
   const refined = [];
   for (let i = 0; i < 4; i++) {
@@ -209,6 +209,29 @@ const fitLine = (points) => {
   }
   const angle = 0.5 * Math.atan2(2 * sxy, sxx - syy);
   return {px: meanX, py: meanY, dx: Math.cos(angle), dy: Math.sin(angle)};
+};
+
+// perpendicular distance from a point to a fitted line
+const lineResidual = (line, x, y) => Math.abs((x - line.px) * line.dy - (y - line.py) * line.dx);
+
+// robust edge fit: fit all points, drop those whose perpendicular residual is a clear outlier
+// (background bleed / occlusion contaminates one end of an edge), then refit on the inliers.
+// Keeps at least 60% of the points and never fewer than 4, so a clean edge is left untouched.
+const fitLineRobust = (points) => {
+  if (points.length < 4) return fitLine(points);
+  let line = fitLine(points);
+  for (let pass = 0; pass < 2; pass++) {
+    const residuals = points.map(([x, y]) => lineResidual(line, x, y));
+    const sorted = residuals.slice().sort((a, b) => a - b);
+    const median = sorted[sorted.length >> 1];
+    const cutoff = Math.max(1.5, 3 * median);
+    const inliers = points.filter((_, i) => residuals[i] <= cutoff);
+    if (inliers.length === points.length) break;
+    if (inliers.length < Math.max(4, points.length * 0.6)) break;
+    line = fitLine(inliers);
+    points = inliers;
+  }
+  return line;
 };
 
 const intersectLines = (l1, l2) => {
